@@ -1,0 +1,12 @@
+﻿# PHP & OS
+/vendor/
+*.log
+.DS_Store
+/storage/*
+!/storage/.htaccess
+/public/uploads/*
+!/public/uploads/.htaccess
+/config/config.local.php
+.env
+*.sql
+*.dump

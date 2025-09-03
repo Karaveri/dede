@@ -1,0 +1,12 @@
+﻿*
+*.php
+*.js
+*.css
+*.sql           text eol=lf
+*.sh            text eol=lf
+*.bat           text eol=crlf
+*.ps1           text eol=crlf
+*.css           text eol=lf
+*.js            text eol=lf
+*.php           text eol=lf
+*               text=auto
