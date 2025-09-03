@@ -1,0 +1,11 @@
+Options -Indexes
+
+# PHP çalıştırılmasın
+<FilesMatch "\.(php|phtml|phar|php[0-9]?)$">
+  Require all denied
+</FilesMatch>
+
+# Gizli dosyalar
+<FilesMatch "^\..*">
+  Require all denied
+</FilesMatch>

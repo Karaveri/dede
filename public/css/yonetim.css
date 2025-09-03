@@ -1,0 +1,62 @@
+.sol-menu .list-group-item {
+  border: 0;
+  border-bottom: 1px solid #eee;
+  padding: .75rem 1rem;
+}
+.menu-baglantisi {
+  text-decoration: none;
+  color: #333;
+  display: block;
+}
+.menu-baglantisi:hover { color: #0d6efd; }
+
+@media (min-width: 992px) {
+  aside { position: sticky; top: 56px; }
+}
+
+main { word-break: break-word; }
+
+.offcanvas .list-group-item { border-bottom: 1px solid #f1f1f1; }
+
+.table td, .table th { vertical-align: middle; }
+
+.sol-menu .list-group-item.active {
+  background-color: #0d6efd;
+  border-color: #0d6efd;
+  color: #fff;
+}
+.sol-menu .list-group-item.active {
+  background-color:#0d6efd; border-color:#0d6efd; color:#fff;
+}
+
+.araust {width:55px; background-color:#cc0022; color:#fff; border-color: #ff0022; }
+.liste {width:85px; background-color:#cc0022; color:#fff; border-color: #ff0022; }
+.yenikat {width: 190px; background-color: #196f36; color: #fff; border-color: #0b4212;}
+.copkutu {width: 177px; background-color: #6c757d; color: #fff; border-color: #3d4347;}
+
+.table td.ozet-cell {
+  max-width: 520px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Cursor'u tıklanabilirlerde kesin pointer yap */
+a[href],
+button,
+.btn,
+[role="button"],
+.nav-link,
+.dropdown-item,
+.page-link {
+  cursor: pointer !important;
+}
+
+/* Devre dışı öğelerde ise el işareti olmasın */
+.btn:disabled,
+[disabled],
+a.disabled,
+.disabled {
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
