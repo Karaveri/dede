@@ -1,0 +1,24 @@
+﻿# Katkı Rehberi (PHP Kişisel Site)
+## Branch
+- main: üretim
+- dev: entegrasyon
+- feature/PHPp: yeni iş
+- feat, fix, refactor, chore, docs
+- Ör: feat(sayfalar): durum filtresi
+- PHP 8+, strict_types=1
+- SQL → Model, Controller yalın
+- Her yazma isteği: auth + csrf + rate
+- JSON:
+  - ok:true | ok:false + kod + mesaj + errors
+- Slug: slugify → slug_benzersiz; rezerveler engellenir
+- Slug değişirse yonlendirmeler’e 301
+- sayfalar: UNIQUE(slug, silindi) + INDEX(silindi, durum)
+- kategoriler: UNIQUE(slug, silindi) + INDEX(parent_id) + FK(parent_id→kategoriler.id)
+- yumuşak silme: silindi TINYINT(1)
+- Upload: MIME whitelist, max boyut, rasgele ad
+- XSS: varsayılan escape, WYSIWYG whitelist
+- Rate limit: giriş ve yazma
+- [ ] Auth/CSRF/Rate var
+- [ ] WHERE koşulları index dostu
+- [ ] Slug benzersiz + 301
+- [ ] Migration eklendi, `php bin/migrate up` temiz
