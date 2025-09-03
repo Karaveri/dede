@@ -1,25 +1,116 @@
-#!/usr/bin/env php
 <?php declare(strict_types=1);
 
-require __DIR__ . '/../bootstrap/cli.php';
+define('BASE_PATH', realpath(__DIR__ . "/.."));
+define('APP_PATH',  BASE_PATH . "/app");
+require BASE_PATH . "/config/config.php";
 
-use App\Core\DB;
-use App\Core\Migrator;
+spl_autoload_register(function($c){
+    $p = "App\\";
+    $b = APP_PATH . "/";
+    $l = strlen($p);
+    if (strncmp($c, $p, $l) !== 0) return;
+    $f = $b . str_replace("\\", "/", substr($c, $l)) . ".php";
+    if (is_file($f)) require $f;
+});
 
-$pdo = DB::pdo();
-$mgr = new Migrator($pdo, dirname(__DIR__) . '/database/migrations');
+$pdo = \App\Core\DB::pdo();
+$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-$cmd = $argv[1] ?? 'status';
-switch ($cmd) {
-    case 'up':
-        $mgr->up($argv[2] ?? null); // optional target filename
-        break;
-    case 'down':
-        $steps = isset($argv[2]) ? (int)$argv[2] : 1;
-        $mgr->down($steps);
-        break;
-    case 'status':
-    default:
-        $mgr->status();
-        break;
+// ensure table
+$pdo->exec("CREATE TABLE IF NOT EXISTS `_migrations`(
+  `id` VARCHAR(64) PRIMARY KEY,
+  `hash` CHAR(40) NOT NULL,
+  `applied_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+$cmd = $argv[1] ?? "up";
+$dir = BASE_PATH . "/database/migrations";
+if (!is_dir($dir)) mkdir($dir, 0775, true);
+
+$files = glob($dir . "/*.php");
+sort($files, SORT_NATURAL);
+
+$applied = [];
+foreach ($pdo->query("SELECT id,hash FROM _migrations") as $r) {
+    $applied[$r['id']] = $r['hash'];
+}
+
+// PowerShell kod sayfasÄ± saÃ§malamasÄ±n diye simgeleri ASCII tut
+$OK = "[x]";
+$PENDING = "[ ]";
+$ARROW_UP = "â†‘";
+$ARROW_DOWN = "â†“";
+
+if ($cmd === "status") {
+    foreach ($files as $f) {
+        $id = basename($f, ".php");
+        echo (isset($applied[$id]) ? $OK : $PENDING) . "  $id\n";
+    }
+    exit;
+}
+
+if (!in_array($cmd, ["up", "down"], true)) {
+    fwrite(STDERR, "Usage: php bin/migrate [up|down|status]\n");
+    exit(1);
+}
+
+if ($cmd === "down" && $files) {
+    $files = array_reverse($files);
+}
+
+foreach ($files as $f) {
+    $id   = basename($f, ".php");
+    $code = file_get_contents($f);
+    $hash = sha1($code);
+
+    $mig = require $f;
+
+    // Sadece array dÃ¶nen sÃ¶zleÅŸme: id eÅŸleÅŸmeli ve up callable olmalÄ±
+    if (!is_array($mig) || ($mig['id'] ?? '') !== $id || !is_callable($mig['up'])) {
+        throw new RuntimeException("Bad migration $f");
+    }
+
+    // DDL (ALTER TABLE vs.) auto-commit yapabileceÄŸi iÃ§in commit/rollback'leri KONTROLLÃœ Ã§aÄŸÄ±r.
+    // BaÅŸlatmayÄ± dene, ama commit/rollback'te inTransaction() ÅŸartÄ±nÄ± kontrol edeceÄŸiz.
+    $txStarted = false;
+    try {
+        // BazÄ± sÃ¼rÃ¼cÃ¼ler beginTransaction sÄ±rasÄ±nda da hata verebilir, o yÃ¼zden sarmalÄ±yoruz
+        $txStarted = $pdo->beginTransaction();
+    } catch (Throwable $__) {
+        $txStarted = false;
+    }
+
+    try {
+        if ($cmd === "up") {
+            // AynÄ± sÃ¼rÃ¼m ve aynÄ± hash zaten uygulanmÄ±ÅŸsa atla
+            if (isset($applied[$id]) && $applied[$id] === $hash) {
+                if ($pdo->inTransaction()) { $pdo->commit(); }
+                continue;
+            }
+
+            // Migration Ã§alÄ±ÅŸtÄ±r
+            ($mig['up'])($pdo);
+
+            // _migrations kaydÄ±
+            $st = $pdo->prepare("REPLACE INTO _migrations(id,hash,applied_at) VALUES(?,?,NOW())");
+            $st->execute([$id, $hash]);
+
+            // GÃ¶rsel Ã§Ä±ktÄ±
+            echo "$ARROW_UP $id\n";
+
+        } else { // down
+            if (is_callable($mig['down'] ?? null)) {
+                ($mig['down'])($pdo);
+                $pdo->prepare("DELETE FROM _migrations WHERE id=?")->execute([$id]);
+                echo "$ARROW_DOWN $id\n";
+            }
+        }
+
+        if ($pdo->inTransaction()) { $pdo->commit(); }
+
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) { $pdo->rollBack(); }
+        fwrite(STDERR, "Hata ($id): " . $e->getMessage() . "\n");
+        exit(1);
+    }
 }
