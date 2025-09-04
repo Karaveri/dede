@@ -30,4 +30,4 @@ return [
       $pdo->exec("ALTER TABLE medya DROP INDEX ux_medya_hash");
       $pdo->exec("ALTER TABLE medya DROP INDEX ix_medya_created_at");
   },
-];
+]; 
