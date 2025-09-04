@@ -1,12 +1,24 @@
-﻿*
-*.php
-*.js
-*.css
-*.sql           text eol=lf
-*.sh            text eol=lf
-*.bat           text eol=crlf
-*.ps1           text eol=crlf
-*.css           text eol=lf
-*.js            text eol=lf
-*.php           text eol=lf
-*               text=auto
+# T?m metinler LF
+*           text=auto eol=lf
+*.php       text eol=lf
+*.js        text eol=lf
+*.css       text eol=lf
+*.html      text eol=lf
+*.md        text eol=lf
+*.json      text eol=lf
+*.yml       text eol=lf
+
+# Windows script'leri CRLF
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+# Binaryler
+*.png -text
+*.jpg -text
+*.jpeg -text
+*.gif -text
+*.webp -text
+*.svg -text
+*.pdf -text
+*.zip -text
