@@ -341,7 +341,7 @@ document.addEventListener('click', async (e) => {
   const aksiyon = btn.dataset.aksiyon; // 'aktif' | 'taslak' | 'sil'
   const url     = btn.dataset.url;
 
-  const ids = [...document.querySelectorAll('.sec-kayit:checked, .chk:checked, .secim:checked')].map(i => i.value);
+  const ids = Array.from(document.querySelectorAll('.sec-kayit:checked, .chk:checked, .secim:checked')).map(i => i.value);
   if (ids.length === 0) { alert('Önce satır seçmelisin.'); return; }
 
   if (aksiyon === 'sil') {
@@ -387,13 +387,6 @@ document.addEventListener('click', async (e) => {
   const ok = await askConfirm(btn.dataset.msg || 'Bu kayıt çöp kutusuna taşınacak. Onaylıyor musunuz?');
   if (ok) form.submit();
 });
-
-/* ==== CSRF Helper ==== */
-function __csrfToken(){
-  return document.querySelector('meta[name="csrf-token"]')?.content
-      || document.getElementById('csrf')?.value
-      || '';
-}
 
 /* ==== Bootstrap confirm (var olan #confirmModal kullanılır) ==== */
 function askConfirm(msg, title){
@@ -470,59 +463,93 @@ async function refreshCopBadge(){
 }
 document.addEventListener('DOMContentLoaded', refreshCopBadge);
 
-/* ==== ÇÖP AKIŞI: tekil (.js-trash-tekli) ve toplu (.js-trash) ==== */
-// onay → post → çöpteysek reload, değilsek satırları kaldır + rozeti tazele
-document.addEventListener('click', async (e) => {
-  const tekli = e.target.closest('.js-trash-tekli');
-  const toplu = !tekli && e.target.closest('.js-trash');
-  if (!tekli && !toplu) return;
+// ==== Medya Yükleme (AJAX, sağlamlaştırılmış) ====
+function __bindMedyaUpload(){
+  const form = document.getElementById('medyaYukleForm');
+  if (!form) return;
 
-  e.preventDefault();
+  // Hem "file" hem "dosya" adına destek (formu A adımında "file" yaptık)
+  const fileInput =
+    form.querySelector('input[type="file"][name="file"]') ||
+    form.querySelector('input[type="file"][name="dosya"]');
 
-  const url = (tekli ? tekli.dataset.url : toplu.dataset.url) || '';
-  const isKalici = url.includes('/kalici-sil');
+  // Birden fazla bağlanmayı engelle
+  if (form.__medyaInit) return;
+  form.__medyaInit = true;
 
-  let ids = [];
-  if (tekli) {
-    ids = [ String(tekli.dataset.id || '').trim() ].filter(Boolean);
-  } else {
-    ids = Array.from(document.querySelectorAll('.sec-kayit:checked, .chk:checked, .secim:checked'))
-               .map(i => i.value).filter(Boolean);
-    if (!ids.length) { alert('Seçim yok.'); return; }
-  }
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault(); // normal submit yok
 
-  const ok = await askConfirm(
-    isKalici
-      ? (tekli ? 'Bu işlem geri alınamaz. Kalıcı olarak silinsin mi?' : 'Seçilen kayıtlar kalıcı silinecek. Devam edilsin mi?')
-      : (tekli ? 'Kayıt geri alınsın mı?' : 'Seçilen kayıtlar geri alınacak. Devam edilsin mi?'),
-    isKalici ? 'Kalıcı Sil' : 'Geri Al'
-  );
-  if (!ok) return;
+    const file = fileInput?.files?.[0];
+    if (!file) { alert('Yüklenecek dosyayı seçmelisin.'); return; }
 
-  try {
-    (tekli || toplu).disabled = true;
-    const res = await postFormData(url, { ids });
-    if (!res?.ok) throw new Error(res?.mesaj || 'İşlem başarısız');
+    // FormData (mevcut form alanları + dosya)
+    const fd = new FormData(form);
+    // Güvenlik için "dosya" adıyla geldiyse "file" anahtarını da ekle
+    if (fileInput?.name === 'dosya' && !fd.has('file')) fd.append('file', file);
 
-    const copSayfasi = !!document.querySelector('.bg-warning-subtle .js-trash'); // alt sarı bar varsa çöpteyiz
-    if (copSayfasi) {
-      location.reload();
-    } else {
-      ids.forEach(id => document.querySelector(`tr[data-id="${id}"]`)?.remove());
-      if (typeof refreshCopBadge === 'function') refreshCopBadge();
+    const token =
+      (typeof getCsrfToken === 'function' && getCsrfToken(form)) ||
+      document.querySelector('meta[name="csrf-token"]')?.content ||
+      document.getElementById('csrf')?.value || '';
 
-      // Seçimleri temizle
-      const master = document.getElementById('secTum');
-      if (master) { master.checked = false; master.indeterminate = false; }
-      document.querySelectorAll('.sec-kayit:checked, .chk:checked, .secim:checked').forEach(ch => ch.checked = false);
+    if (token && !fd.has('csrf')) fd.append('csrf', token);
+
+    const endpoint = form.getAttribute('action') || '/admin/medya/yukle';
+
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': token,
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/json'
+        },
+        body: fd
+      });
+
+      const raw = await res.text();
+      let data; try { data = JSON.parse(raw); } catch { data = {}; }
+
+      // Başarı iki biçimde gelebilir: {url:'...'} veya {location:'...'}
+      const url = data.url || data.location || '';
+      if (!res.ok || !url) {
+        const msg =
+          data.mesaj ||
+          (res.status === 413 ? 'Dosya boyutu izin verilen sınırı aşıyor.' :
+           res.status === 415 ? 'Desteklenmeyen içerik türü.' :
+           (res.status === 419 || res.status === 403) ? 'Oturum doğrulaması başarısız (CSRF).' :
+           `Yükleme başarısız (HTTP ${res.status})`);
+        if (typeof showToast === 'function') showToast(msg, 'info'); else alert(msg);
+        return;
+      }
+
+      if (typeof showToast === 'function') showToast('Yükleme başarılı.', 'success');
+
+      // Basit önizleme kartı
+      const sonuc = document.getElementById('medyaSonuc') || document.body;
+      const card = document.createElement('div');
+      card.className = 'card mb-3';
+      card.innerHTML = `
+        <div class="card-body d-flex align-items-center gap-3">
+          <img src="${url}" alt="" style="width:96px;height:96px;object-fit:cover;border-radius:.5rem;">
+          <div>
+            <div><strong>${url.split('/').pop().split('?')[0]}</strong></div>
+            <div class="text-muted small">Yüklendi</div>
+            <div><a class="link-primary" href="${url}" target="_blank" rel="noopener">Görüntüle</a></div>
+          </div>
+        </div>`;
+      sonuc.prepend(card);
+      form.reset();
+    } catch (err) {
+      console.error(err);
+      if (typeof showToast === 'function') showToast('İstek gönderilemedi. Ağ hatası olabilir.', 'info'); else alert('İstek gönderilemedi.');
     }
-  } catch (err) {
-    console.error(err);
-    alert(err.message);
-  } finally {
-    (tekli || toplu).disabled = false;
-  }
-});
+  });
+}
+
+// Dinleyici bağlama: DOM hazır olduktan sonra
+document.addEventListener('DOMContentLoaded', __bindMedyaUpload, { once: true });
 
 // === TEK ve KESİN durum toggle handler ===
 document.addEventListener('click', async (e) => {

@@ -88,9 +88,25 @@ final class Image
 
     private static function mimeExt(string $path): array
     {
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mime  = finfo_file($finfo, $path) ?: null;
-        finfo_close($finfo);
+        $mime = '';
+        if (function_exists('finfo_open')) {
+            $fi = @finfo_open(FILEINFO_MIME_TYPE);
+            if ($fi) {
+                $mime = @finfo_file($fi, $path) ?: '';
+                @finfo_close($fi);
+            }
+        }
+        // Fallback: sihirli baytlar
+        if ($mime === '' || $mime === 'application/octet-stream') {
+            $head = @file_get_contents($path, false, null, 0, 12) ?: '';
+            if (strncmp($head, "\xFF\xD8\xFF", 3) === 0)      $mime = 'image/jpeg';
+            elseif (strncmp($head, "\x89PNG", 4) === 0)        $mime = 'image/png';
+            elseif (strncmp($head, "GIF87a", 6) === 0
+                 || strncmp($head, "GIF89a", 6) === 0)        $mime = 'image/gif';
+            elseif (strncmp($head, "RIFF", 4) === 0
+                 && substr($head, 8, 4) === "WEBP")           $mime = 'image/webp';
+            else                                               $mime = '';
+        }
         $map = [
             'image/jpeg' => 'jpg',
             'image/png'  => 'png',
@@ -120,4 +136,79 @@ final class Image
             case 'image/webp': if (function_exists('imagewebp')) imagewebp($img, $path, 85); break;
         }
     }
+
+    /* ===== Güvenlik/Yardımcılar (MIME, doğrulama, exif temizleme) ===== */
+
+    /** Geçerli MIME'ı güvenilir biçimde tespit et (finfo + sihirli baytlar) */
+    public static function sniffMime(string $tmpFile): string
+    {
+        if (!is_file($tmpFile)) return '';
+        $mime = '';
+        if (function_exists('finfo_open')) {
+            $f = @finfo_open(FILEINFO_MIME_TYPE);
+            if ($f) {
+                $mime = @finfo_file($f, $tmpFile) ?: '';
+                @finfo_close($f);
+            }
+        }
+        if ($mime === 'image/jpg') $mime = 'image/jpeg';
+        // Şu andan sonrası aynı; fallback sihirli bayt kontrolü aşağıda devam etsin
+        $head = @file_get_contents($tmpFile, false, null, 0, 12) ?: '';
+        if ($mime && in_array($mime, ['image/jpeg','image/png','image/gif','image/webp'], true)) {
+        return $mime;
+        }
+        if (strncmp($head, "\xFF\xD8\xFF", 3) === 0) return 'image/jpeg';
+        if (strncmp($head, "\x89PNG", 4) === 0)     return 'image/png';
+        if (strncmp($head, "GIF87a", 6) === 0 || strncmp($head, "GIF89a", 6) === 0) return 'image/gif';
+        if (strncmp($head, "RIFF", 4) === 0 && substr($head, 8, 4) === "WEBP")       return 'image/webp';
+        return '';
+    }
+
+    /** Beyaz liste kontrolü */
+    public static function isAllowedMime(string $mime): bool
+    {
+        return in_array($mime, ['image/jpeg','image/png','image/gif','image/webp'], true);
+    }
+
+    /** Görselin gerçekten render edilebilir olduğunu doğrula */
+    public static function isValidImage(string $tmpFile): bool
+    {
+        $info = @getimagesize($tmpFile);
+        if ($info === false) return false;
+        [$w, $h] = $info;
+        // Aşırı büyük boyutlara karşı üst sınır (isteğe göre ayarlanabilir)
+        return $w > 0 && $h > 0 && $w <= 12000 && $h <= 12000;
+    }
+
+    /** MIME'a göre mantıklı dosya uzantısını seç */
+    public static function pickExtension(string $mime, string $originalExt = ''): string
+    {
+        $map = [
+            'image/jpeg' => 'jpg',
+            'image/png'  => 'png',
+            'image/gif'  => 'gif',
+            'image/webp' => 'webp',
+        ];
+        $ext = strtolower($originalExt ?: ($map[$mime] ?? ''));
+        if ($ext === 'jpeg') $ext = 'jpg';
+        if (!in_array($ext, ['jpg','png','gif','webp'], true)) {
+            $ext = $map[$mime] ?? 'jpg';
+        }
+        return $ext;
+    }
+
+    /** JPEG’lerden EXIF/metadata’yı düşür (yeniden kaydederek) */
+    public static function stripJpegExifIfPossible(string $path): void
+    {
+        [$mime] = self::mimeExt($path);
+        if ($mime !== 'image/jpeg' || !is_writable($path)) return;
+        if (!function_exists('imagecreatefromjpeg') || !function_exists('imagejpeg')) return;
+
+        $img = @imagecreatefromjpeg($path);
+        if (!$img) return;
+
+        @imagejpeg($img, $path, 85);
+        @imagedestroy($img);
+    }
+
 }

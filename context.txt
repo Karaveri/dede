@@ -1,0 +1,150 @@
+﻿=== TREE (depth=2) ===
+
+FullName                                                                                    
+--------                                                                                    
+C:\xampp\htdocs\fevzi\0 - SRC                                                               
+C:\xampp\htdocs\fevzi\app                                                                   
+C:\xampp\htdocs\fevzi\bin                                                                   
+C:\xampp\htdocs\fevzi\bootstrap                                                             
+C:\xampp\htdocs\fevzi\config                                                                
+C:\xampp\htdocs\fevzi\database                                                              
+C:\xampp\htdocs\fevzi\public                                                                
+C:\xampp\htdocs\fevzi\storage                                                               
+C:\xampp\htdocs\fevzi\.editorconfig                                                         
+C:\xampp\htdocs\fevzi\.gitattributes                                                        
+C:\xampp\htdocs\fevzi\.gitignore                                                            
+C:\xampp\htdocs\fevzi\avatar1.jpg                                                           
+C:\xampp\htdocs\fevzi\context.txt                                                           
+C:\xampp\htdocs\fevzi\CONTRIBUTING.md                                                       
+C:\xampp\htdocs\fevzi\hash.php                                                              
+C:\xampp\htdocs\fevzi\PROMPT.docx                                                           
+C:\xampp\htdocs\fevzi\README.md                                                             
+C:\xampp\htdocs\fevzi\0 - SRC\avatar                                                        
+C:\xampp\htdocs\fevzi\0 - SRC\fevzi.sql                                                     
+C:\xampp\htdocs\fevzi\0 - SRC\YENİ SOHBETTE YAPILACAKLAR.txt                                
+C:\xampp\htdocs\fevzi\0 - SRC\✅ Admin Paneli İçin Kullanılabilecek Önemli İstatistikler.docx
+C:\xampp\htdocs\fevzi\0 - SRC\avatar\avatar.jpg                                             
+C:\xampp\htdocs\fevzi\0 - SRC\avatar\avatar3.jpg                                            
+C:\xampp\htdocs\fevzi\0 - SRC\avatar\avatar4.jpg                                            
+C:\xampp\htdocs\fevzi\0 - SRC\avatar\avatar5.jpg                                            
+C:\xampp\htdocs\fevzi\0 - SRC\avatar\avatar6.png                                            
+C:\xampp\htdocs\fevzi\0 - SRC\avatar\avatar7.jpg                                            
+C:\xampp\htdocs\fevzi\0 - SRC\avatar\d58ead3b-a0c8-412d-b9bd-b73f817914e1.jpg               
+C:\xampp\htdocs\fevzi\app\Controllers                                                       
+C:\xampp\htdocs\fevzi\app\Core                                                              
+C:\xampp\htdocs\fevzi\app\helpers                                                           
+C:\xampp\htdocs\fevzi\app\Middleware                                                        
+C:\xampp\htdocs\fevzi\app\Models                                                            
+C:\xampp\htdocs\fevzi\app\Services                                                          
+C:\xampp\htdocs\fevzi\app\Traits                                                            
+C:\xampp\htdocs\fevzi\app\Views                                                             
+C:\xampp\htdocs\fevzi\app\Controllers\AdminController.php                                   
+C:\xampp\htdocs\fevzi\app\Controllers\GirisController.php                                   
+C:\xampp\htdocs\fevzi\app\Controllers\KategorilerDenetleyici.php                            
+C:\xampp\htdocs\fevzi\app\Controllers\MedyaController.php                                   
+C:\xampp\htdocs\fevzi\app\Controllers\SayfalarController.php                                
+C:\xampp\htdocs\fevzi\app\Controllers\YonetimDenetleyici.php                                
+C:\xampp\htdocs\fevzi\app\Controllers\YonlendirmelerDenetleyici.php                         
+C:\xampp\htdocs\fevzi\app\Core\Auth.php                                                     
+C:\xampp\htdocs\fevzi\app\Core\Controller.php                                               
+C:\xampp\htdocs\fevzi\app\Core\Csrf.php                                                     
+C:\xampp\htdocs\fevzi\app\Core\Database.php                                                 
+C:\xampp\htdocs\fevzi\app\Core\DB.php                                                       
+C:\xampp\htdocs\fevzi\app\Core\Logger.php                                                   
+C:\xampp\htdocs\fevzi\app\Core\Migrator.php                                                 
+C:\xampp\htdocs\fevzi\app\Core\Router.php                                                   
+C:\xampp\htdocs\fevzi\app\Core\Validator.php                                                
+C:\xampp\htdocs\fevzi\app\Core\View.php                                                     
+C:\xampp\htdocs\fevzi\app\helpers\html_helper.php                                           
+C:\xampp\htdocs\fevzi\app\helpers\redirect_helper.php                                       
+C:\xampp\htdocs\fevzi\app\helpers\slug_helper.php                                           
+C:\xampp\htdocs\fevzi\app\helpers\validator.php                                             
+C:\xampp\htdocs\fevzi\app\Middleware\Auth.php                                               
+C:\xampp\htdocs\fevzi\app\Middleware\Csrf.php                                               
+C:\xampp\htdocs\fevzi\app\Middleware\RateLimit.php                                          
+C:\xampp\htdocs\fevzi\app\Models\KategoriModel.php                                          
+C:\xampp\htdocs\fevzi\app\Models\KullaniciModel.php                                         
+C:\xampp\htdocs\fevzi\app\Models\SayfaModel.php                                             
+C:\xampp\htdocs\fevzi\app\Services\Image.php                                                
+C:\xampp\htdocs\fevzi\app\Traits\DurumTrait.php                                             
+C:\xampp\htdocs\fevzi\app\Views\admin                                                       
+C:\xampp\htdocs\fevzi\app\Views\giris                                                       
+C:\xampp\htdocs\fevzi\app\Views\hata                                                        
+C:\xampp\htdocs\fevzi\app\Views\layouts                                                     
+C:\xampp\htdocs\fevzi\bin\migrate                                                           
+C:\xampp\htdocs\fevzi\bin\mk-migration                                                      
+C:\xampp\htdocs\fevzi\bootstrap\cli.php                                                     
+C:\xampp\htdocs\fevzi\config\config.php                                                     
+C:\xampp\htdocs\fevzi\config\routes.php                                                     
+C:\xampp\htdocs\fevzi\database\migrations                                                   
+C:\xampp\htdocs\fevzi\database\migrations\0000_00_probe.php                                 
+C:\xampp\htdocs\fevzi\database\migrations\20250826_001_add_indexes.php                      
+C:\xampp\htdocs\fevzi\database\migrations\20250830_001_schema_hardening.php                 
+C:\xampp\htdocs\fevzi\database\migrations\20250903_001_schema_baseline.php                  
+C:\xampp\htdocs\fevzi\public\assets                                                         
+C:\xampp\htdocs\fevzi\public\css                                                            
+C:\xampp\htdocs\fevzi\public\js                                                             
+C:\xampp\htdocs\fevzi\public\uploads                                                        
+C:\xampp\htdocs\fevzi\public\.htaccess                                                      
+C:\xampp\htdocs\fevzi\public\dbcheck.php                                                    
+C:\xampp\htdocs\fevzi\public\index.php                                                      
+C:\xampp\htdocs\fevzi\public\css\yonetim.css                                                
+C:\xampp\htdocs\fevzi\public\js\editor.js                                                   
+C:\xampp\htdocs\fevzi\public\js\yonetim.js                                                  
+C:\xampp\htdocs\fevzi\public\uploads\editor                                                 
+C:\xampp\htdocs\fevzi\public\uploads\.htaccess                                              
+C:\xampp\htdocs\fevzi\storage\logs                                                          
+C:\xampp\htdocs\fevzi\storage\ratelimit                                                     
+C:\xampp\htdocs\fevzi\storage\.htaccess                                                     
+C:\xampp\htdocs\fevzi\storage\ratelimit\025fc8f13b97c25f6f2eff618aae012cef30ba1b.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\0723a40aa958b8de1c498b0864d485a2076e2ce5.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\080c8e11634a4b7313ee9e80fb560afb263fedc6.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\082b4fe62dbf43f263eeafd55cdc19ab6f74b9bd.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\0f91c057862aa566085827bf451ca7de1fb401d1.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\1deed8b9af821d6d555a72809957028fc518e7da.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\38924e970ae92d2961c3b68b8470352ca5993c49.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\457d51832bf85ae53fd6f54d72dcf3f8978ade69.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\4a4fe30ebd535c096d1e26ce6ce363b455242428.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\5277b4eea71d3e8e705adb25f28182d6d8ca31fd.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\57fca9ce8dfde997b0798e8a6f3bb4f58ea4c9bd.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\59d6686b752bc9552221e5fe32ae13ead268521d.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\63564b1082c3c1e9afedbc683b3cc4685c6fe947.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\63faaca300141217400fc40979a09ae87b7b4db1.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\70439d304e4f252e2fb38d9ca0f630d58190a08a.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\720be48a4e4ae620668d71555d6be3329bdb08d6.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\72a34e78b1726f494a7bacd9870062c32efc2153.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\74899eb00c1d328282969e3973a15b5d687e7c27.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\757f8aa47b8f61a9170a7ebc513557de00e4560a.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\826c36f4425a08e529de754d70876008efccaf17.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\8ef01b3cecbe99bf55fb2aebb6abc2d61e47bb59.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\92b244c4e442e50fa1b273762fc8e0d524940bd0.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\a377df6730c55926d1724ffdfdd90b89580c993c.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\a40592c2256e807b5f428d34a098a2ab3143bfae.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\b586fe48a19e08fef77d4e87c14bf774f957e9ce.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\bbd898d153766efee693e1e6991ed7ebf47d3c23.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\bd682ae988b348947970a6a26c011ed5a6295f64.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\be1fb6ee58eeac0aaa8a0571914fde029fd7632a.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\bf64526a6a26cb7bde3a86144ac429ff1bf3ed93.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\cabe2de44eb7973f5549e6a1200a3e70820df780.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\cf68481433367b2a01b7b5b226c578ea67514e78.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\d19feac8d774c3ca072f85d371dcfe5709dec41f.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\d63baa13fccea77fe04243fb163f373570bde87c.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\da39c29a83b9c52ee6c1f592bba69ba519f7bc75.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\debf5119b5020d30e6a864a9f98adc008e6c510b.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\e831895028b490da19eca915b7710cd780a9f6f8.json       
+C:\xampp\htdocs\fevzi\storage\ratelimit\f7412c7f0667a9362a6ea2255dd1d59ade0651ce.json       
+
+
+
+=== GIT STATUS ===
+?? "0 - SRC/YEN\304\260 SOHBETTE YAPILACAKLAR.txt"
+?? bin/mk-migration
+?? context.txt
+
+=== GIT DIFF ===
+
+=== MIGRATE STATUS ===
+[x]  0000_00_probe
+[x]  20250826_001_add_indexes
+[x]  20250830_001_schema_hardening
+[x]  20250903_001_schema_baseline

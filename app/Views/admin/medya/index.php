@@ -28,7 +28,25 @@ $BASE = rtrim(BASE_URL, '/');
     <button class="btn btn-sm btn-secondary">Ara</button>
   </div>
 </form>
+<div class="card mb-3">
+  <div class="card-body">
+    <form id="medyaYukleForm" action="<?= BASE_URL ?>/admin/medya/yukle" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfVal, ENT_QUOTES, 'UTF-8') ?>">
+      <div class="row g-2 align-items-end">
+        <div class="col-sm-6">
+          <label for="file" class="form-label">Görsel seç</label>
+          <input type="file" class="form-control" id="file" name="file" accept="image/*" required>
+          <div class="form-text">İzinli türler: JPEG, PNG, WEBP, GIF • Maksimum 8 MB</div>
+        </div>
+        <div class="col-auto">
+          <button type="submit" class="btn btn-primary">Yükle</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
 
+<div id="medyaSonuc"></div>
 <!-- TEK FORM: toplu + tekil silme bu formdan yönetilir -->
 <form id="medyaForm" method="post" action="<?= BASE_URL ?>/admin/medya/toplu-sil">
   <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfVal, ENT_QUOTES, 'UTF-8') ?>">
@@ -37,8 +55,8 @@ $BASE = rtrim(BASE_URL, '/');
 
   <div class="d-flex align-items-center gap-2 mb-2">
     <div class="form-check">
-      <input class="form-check-input" type="checkbox" id="secHepsi">
-      <label class="form-check-label" for="secHepsi">Tümünü seç</label>
+      <input class="form-check-input" type="checkbox" id="secTum">
+      <label class="form-check-label" for="secTum">Tümünü seç</label>
     </div>
     <!-- Toplu silme artık modal açar -->
     <button type="button" class="btn btn-sm btn-danger" id="bulkDeleteBtn">Seçili olanları sil</button>
@@ -53,8 +71,9 @@ $BASE = rtrim(BASE_URL, '/');
         <div class="col">
           <div class="card h-100">
             <!-- Küçük görsele tıklayınca modal önizleme -->
+          <?php $thumb = !empty($m['yol_thumb'] ?? null) ? $m['yol_thumb'] : $m['yol']; ?>
             <a href="#" class="ratio ratio-1x1 media-thumb" data-src="<?= $BASE . $m['yol'] ?>">
-              <img src="<?= $BASE . $m['yol'] ?>" alt="" class="card-img-top" style="object-fit:cover;">
+              <img src="<?= $BASE . $thumb ?>" alt="" class="card-img-top" style="object-fit:cover;">
             </a>
             <div class="card-body p-2">
               <div class="small text-truncate" title="<?= htmlspecialchars($m['yol']) ?>">
@@ -141,10 +160,11 @@ $BASE = rtrim(BASE_URL, '/');
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+  if (typeof __bindMedyaUpload === 'function') __bindMedyaUpload();
   // Tümünü seç
-  const secHepsi = document.getElementById('secHepsi');
-  if (secHepsi) {
-    secHepsi.addEventListener('change', function(){
+  const secTum = document.getElementById('secTum');
+  if (secTum) {
+    secTum.addEventListener('change', function(){
       document.querySelectorAll('.chk').forEach(ch => ch.checked = !!this.checked);
     });
   }

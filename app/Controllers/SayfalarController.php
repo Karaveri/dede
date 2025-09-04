@@ -37,11 +37,11 @@ class SayfalarController extends AdminController
             $where .= " AND (baslik LIKE :q OR slug LIKE :q OR ozet LIKE :q)";
             $params[':q'] = "%{$q}%";
         }
-$durum = trim((string)($_GET['durum'] ?? ''));
-if ($durum === 'yayinda' || $durum === 'taslak') {
-    $where .= " AND durum = :durum";
-    $params[':durum'] = $durum;
-}
+        $durum = trim((string)($_GET['durum'] ?? ''));
+        if ($durum === 'yayinda' || $durum === 'taslak') {
+            $where .= " AND durum = :durum";
+            $params[':durum'] = $durum;
+        }
         // Toplam kayıt
         $st = DB::pdo()->prepare("SELECT COUNT(*) FROM sayfalar $where");
         foreach ($params as $k=>$v) $st->bindValue($k,$v,\PDO::PARAM_STR);
@@ -231,7 +231,7 @@ if ($durum === 'yayinda' || $durum === 'taslak') {
         }
 
         // Kayıt
-        $sql = "INSERT INTO sayfalar (baslik, ozet, icerik, slug, durum, meta_baslik, meta_aciklama, created_at, updated_at)
+        $sql = "INSERT INTO sayfalar (baslik, ozet, icerik, slug, durum, meta_baslik, meta_aciklama, olusturma_tarihi, guncelleme_tarihi)
                 VALUES (:baslik, :ozet, :icerik, :slug, :durum, :meta_baslik, :meta_aciklama, NOW(), NOW())";
         $s = DB::pdo()->prepare($sql);
         $ok = $s->execute([
@@ -326,7 +326,7 @@ if ($durum === 'yayinda' || $durum === 'taslak') {
         // Güncelle
         $sql = "UPDATE sayfalar
                 SET baslik=:baslik, ozet=:ozet, icerik=:icerik, slug=:slug, durum=:durum,
-                    meta_baslik=:meta_baslik, meta_aciklama=:meta_aciklama, updated_at=NOW()
+                    meta_baslik=:meta_baslik, meta_aciklama=:meta_aciklama, guncelleme_tarihi=NOW()
                 WHERE id=:id";
         $s = DB::pdo()->prepare($sql);
         $ok = $s->execute([
@@ -400,7 +400,6 @@ if ($durum === 'yayinda' || $durum === 'taslak') {
     }
 
     // GET /admin/sayfalar/duzenle?id=...
-
     public function duzenle(): void
     {
         $id = (int)($_GET['id'] ?? 0);
@@ -527,7 +526,6 @@ if ($durum === 'yayinda' || $durum === 'taslak') {
         return $this->jsonOk(['uygun' => !$varMi]);
     }
 
-    // ---------------- ÇÖP KUTUSU LİSTE ----------------
     // GET /admin/sayfalar/cop
     public function cop(): string
     {
@@ -586,94 +584,88 @@ if ($durum === 'yayinda' || $durum === 'taslak') {
         }
     }
 
-    // --------------- GERİ AL (tek/çok) ----------------
-    // POST /admin/sayfalar/geri-al
-// --------------- GERİ AL (tek/çok) ----------------
-// POST /admin/sayfalar/geri-al  (AJAX ise JSON, değilse redirect)
-public function geriAl(): string
-{
-    $isAjax = method_exists($this, 'isAjax') ? $this->isAjax() : (
-        stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false
-        || in_array(strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? ''), ['xmlhttprequest','fetch'], true)
-    );
+    // POST /admin/sayfalar/geri-al  (AJAX ise JSON, değilse redirect)
+    public function geriAl(): string
+    {
+        $isAjax = method_exists($this, 'isAjax') ? $this->isAjax() : (
+            stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false
+            || in_array(strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? ''), ['xmlhttprequest','fetch'], true)
+        );
 
-    if (!\App\Core\Csrf::check()) {
-        if ($isAjax) return $this->jsonErr('Güvenlik doğrulaması başarısız.', 'CSRF_RED', [], 403);
-        $_SESSION['hata'] = 'Güvenlik doğrulaması başarısız.';
+        if (!\App\Core\Csrf::check()) {
+            if ($isAjax) return $this->jsonErr('Güvenlik doğrulaması başarısız.', 'CSRF_RED', [], 403);
+            $_SESSION['hata'] = 'Güvenlik doğrulaması başarısız.';
+            $this->redirect(BASE_URL . '/admin/sayfalar/cop'); return '';
+        }
+
+        // id + ids[] toplanır
+        $ids = [];
+        if (!empty($_POST['id']))  $ids[] = (int)$_POST['id'];
+        if (!empty($_POST['ids'])) $ids = array_merge($ids, array_map('intval', (array)$_POST['ids']));
+        $ids = array_values(array_unique(array_filter($ids, fn($v)=>$v>0)));
+
+        if (!$ids) {
+            if ($isAjax) return $this->jsonErr('Seçim yok.', 'NO_SELECTION', [], 422);
+            $_SESSION['hata'] = 'Seçim yok.';
+            $this->redirect(BASE_URL . '/admin/sayfalar/cop'); return '';
+        }
+
+        try {
+            $in = implode(',', array_fill(0, count($ids), '?'));
+            $st = \App\Core\DB::pdo()->prepare("UPDATE sayfalar SET silindi = 0, guncelleme_tarihi = NOW() WHERE id IN ($in)");
+            $st->execute($ids);
+            $n = (int)$st->rowCount();
+        } catch (\Throwable $e) {
+            if ($isAjax) return $this->jsonErr('İşlem hatası: '.$e->getMessage(), 'DB_EX', [], 500);
+            $_SESSION['hata'] = 'İşlem hatası.';
+            $this->redirect(BASE_URL . '/admin/sayfalar/cop'); return '';
+        }
+
+        if ($isAjax) return $this->jsonOk(['ok'=>true, 'ids'=>$ids, 'n'=>$n]);
+        $_SESSION['mesaj'] = $n.' kayıt geri alındı.';
         $this->redirect(BASE_URL . '/admin/sayfalar/cop'); return '';
     }
 
-    // id + ids[] toplanır
-    $ids = [];
-    if (!empty($_POST['id']))  $ids[] = (int)$_POST['id'];
-    if (!empty($_POST['ids'])) $ids = array_merge($ids, array_map('intval', (array)$_POST['ids']));
-    $ids = array_values(array_unique(array_filter($ids, fn($v)=>$v>0)));
+    // POST /admin/sayfalar/yok-et  (AJAX ise JSON, değilse redirect)
+    public function yokEt(): string
+    {
+        $isAjax = method_exists($this, 'isAjax') ? $this->isAjax() : (
+            stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false
+            || in_array(strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? ''), ['xmlhttprequest','fetch'], true)
+        );
 
-    if (!$ids) {
-        if ($isAjax) return $this->jsonErr('Seçim yok.', 'NO_SELECTION', [], 422);
-        $_SESSION['hata'] = 'Seçim yok.';
+        if (!\App\Core\Csrf::check()) {
+            if ($isAjax) return $this->jsonErr('Güvenlik doğrulaması başarısız.', 'CSRF_RED', [], 403);
+            $_SESSION['hata'] = 'Güvenlik doğrulaması başarısız.';
+            $this->redirect(BASE_URL . '/admin/sayfalar/cop'); return '';
+        }
+
+        $ids = [];
+        if (!empty($_POST['id']))  $ids[] = (int)$_POST['id'];
+        if (!empty($_POST['ids'])) $ids = array_merge($ids, array_map('intval', (array)$_POST['ids']));
+        $ids = array_values(array_unique(array_filter($ids, fn($v)=>$v>0)));
+
+        if (!$ids) {
+            if ($isAjax) return $this->jsonErr('Seçim yok.', 'NO_SELECTION', [], 422);
+            $_SESSION['hata'] = 'Seçim yok.';
+            $this->redirect(BASE_URL . '/admin/sayfalar/cop'); return '';
+        }
+
+        try {
+            $in = implode(',', array_fill(0, count($ids), '?'));
+            $st = \App\Core\DB::pdo()->prepare("DELETE FROM sayfalar WHERE id IN ($in)");
+            $st->execute($ids);
+            $n = (int)$st->rowCount();
+        } catch (\Throwable $e) {
+            if ($isAjax) return $this->jsonErr('İşlem hatası: '.$e->getMessage(), 'DB_EX', [], 500);
+            $_SESSION['hata'] = 'İşlem hatası.';
+            $this->redirect(BASE_URL . '/admin/sayfalar/cop'); return '';
+        }
+
+        if ($isAjax) return $this->jsonOk(['ok'=>true, 'ids'=>$ids, 'n'=>$n]);
+        $_SESSION['mesaj'] = $n.' kayıt kalıcı silindi.';
         $this->redirect(BASE_URL . '/admin/sayfalar/cop'); return '';
     }
-
-    try {
-        $in = implode(',', array_fill(0, count($ids), '?'));
-        $st = \App\Core\DB::pdo()->prepare("UPDATE sayfalar SET silindi = 0, guncelleme_tarihi = NOW() WHERE id IN ($in)");
-        $st->execute($ids);
-        $n = (int)$st->rowCount();
-    } catch (\Throwable $e) {
-        if ($isAjax) return $this->jsonErr('İşlem hatası: '.$e->getMessage(), 'DB_EX', [], 500);
-        $_SESSION['hata'] = 'İşlem hatası.';
-        $this->redirect(BASE_URL . '/admin/sayfalar/cop'); return '';
-    }
-
-    if ($isAjax) return $this->jsonOk(['ok'=>true, 'ids'=>$ids, 'n'=>$n]);
-    $_SESSION['mesaj'] = $n.' kayıt geri alındı.';
-    $this->redirect(BASE_URL . '/admin/sayfalar/cop'); return '';
-}
-
-    // ------------- KALICI SİL (tek/çok) ---------------
-    // POST /admin/sayfalar/yok-et
-// ------------- KALICI SİL (tek/çok) ---------------
-// POST /admin/sayfalar/yok-et  (AJAX ise JSON, değilse redirect)
-public function yokEt(): string
-{
-    $isAjax = method_exists($this, 'isAjax') ? $this->isAjax() : (
-        stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false
-        || in_array(strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? ''), ['xmlhttprequest','fetch'], true)
-    );
-
-    if (!\App\Core\Csrf::check()) {
-        if ($isAjax) return $this->jsonErr('Güvenlik doğrulaması başarısız.', 'CSRF_RED', [], 403);
-        $_SESSION['hata'] = 'Güvenlik doğrulaması başarısız.';
-        $this->redirect(BASE_URL . '/admin/sayfalar/cop'); return '';
-    }
-
-    $ids = [];
-    if (!empty($_POST['id']))  $ids[] = (int)$_POST['id'];
-    if (!empty($_POST['ids'])) $ids = array_merge($ids, array_map('intval', (array)$_POST['ids']));
-    $ids = array_values(array_unique(array_filter($ids, fn($v)=>$v>0)));
-
-    if (!$ids) {
-        if ($isAjax) return $this->jsonErr('Seçim yok.', 'NO_SELECTION', [], 422);
-        $_SESSION['hata'] = 'Seçim yok.';
-        $this->redirect(BASE_URL . '/admin/sayfalar/cop'); return '';
-    }
-
-    try {
-        $in = implode(',', array_fill(0, count($ids), '?'));
-        $st = \App\Core\DB::pdo()->prepare("DELETE FROM sayfalar WHERE id IN ($in)");
-        $st->execute($ids);
-        $n = (int)$st->rowCount();
-    } catch (\Throwable $e) {
-        if ($isAjax) return $this->jsonErr('İşlem hatası: '.$e->getMessage(), 'DB_EX', [], 500);
-        $_SESSION['hata'] = 'İşlem hatası.';
-        $this->redirect(BASE_URL . '/admin/sayfalar/cop'); return '';
-    }
-
-    if ($isAjax) return $this->jsonOk(['ok'=>true, 'ids'=>$ids, 'n'=>$n]);
-    $_SESSION['mesaj'] = $n.' kayıt kalıcı silindi.';
-    $this->redirect(BASE_URL . '/admin/sayfalar/cop'); return '';
-}
 
     /* ---------- Yardımcılar ---------- */
     private function slugify(string $metin): string

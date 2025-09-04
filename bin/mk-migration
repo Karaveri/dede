@@ -1,0 +1,113 @@
+<?php declare(strict_types=1);
+
+/**
+ * mk-migration: database/migrations altına idempotent migration şablonu üretir.
+ *
+ * Kullanım:
+ *   php bin/mk-migration "add users table"
+ *   php bin/mk-migration "kategoriler parent fk"
+ *
+ * Oluşan dosya adı:
+ *   YYYYMMDD_NNN_<slug>.php   (ör: 20250904_001_add_users_table.php)
+ */
+
+define('BASE_PATH', realpath(__DIR__ . "/.."));
+$dir = BASE_PATH . "/database/migrations";
+if (!is_dir($dir)) { mkdir($dir, 0775, true); }
+
+$args = $argv;
+array_shift($args); // script adı
+if (count($args) < 1) {
+    fwrite(STDERR, "Kullanım: php bin/mk-migration \"açıklama\"\n");
+    exit(1);
+}
+
+$descRaw = trim(implode(" ", $args));
+if ($descRaw === '') {
+    fwrite(STDERR, "Hata: açıklama boş olamaz.\n");
+    exit(1);
+}
+
+// basit slug
+$slug = strtolower($descRaw);
+$slug = preg_replace('~[^a-z0-9]+~', '_', $slug);
+$slug = trim($slug, '_');
+if ($slug === '') { $slug = 'migration'; }
+
+// tarih + sıra
+$today = (new DateTimeImmutable('now'))->format('Ymd');
+
+// aynı güne ait mevcut dosyaları tara, en büyük NNN'yi bul
+$files = glob($dir . "/*.php") ?: [];
+$maxSeq = 0;
+foreach ($files as $f) {
+    $base = basename($f, ".php"); // ör: 20250904_001_add_users_table
+    if (preg_match('~^(\d{8})_(\d{3})_~', $base, $m)) {
+        if ($m[1] === $today) {
+            $seq = intval($m[2], 10);
+            if ($seq > $maxSeq) $maxSeq = $seq;
+        }
+    }
+}
+$nextSeq = str_pad((string)($maxSeq + 1), 3, '0', STR_PAD_LEFT);
+
+// id ve dosya adı
+$id  = "{$today}_{$nextSeq}_{$slug}";
+$dst = "{$dir}/{$id}.php";
+if (file_exists($dst)) {
+    fwrite(STDERR, "Hata: dosya zaten var: {$dst}\n");
+    exit(1);
+}
+
+// içerik (UTF-8, BOM YOK)
+$template = <<<PHP
+<?php
+return [
+  'id' => '{$id}',
+
+  // Bu migration şablonu PDO + MariaDB uyumludur.
+  // Notlar:
+  // - SHOW/DDL üzerinde bind KULLANMA; $pdo->quote() kullan.
+  // - DDL (ALTER TABLE) auto-commit yapabilir; runner'ında inTransaction kontrolü olmalı.
+
+  'up' => function (\\PDO \$pdo): void {
+      // ÖRNEKLER — SİL/DEĞİŞTİR:
+      // \$pdo->exec("ALTER TABLE `kategoriler` ADD COLUMN `yeni` INT NOT NULL DEFAULT 0");
+      // \$pdo->exec("ALTER TABLE `sayfalar` ADD INDEX `ix_sayfalar_yeni_idx` (`yeni`)");
+      // \$pdo->exec("ALTER TABLE `kategoriler` ADD CONSTRAINT `fk_example` FOREIGN KEY (`parent_id`) REFERENCES `kategoriler`(`id`) ON UPDATE CASCADE ON DELETE SET NULL");
+
+      // YAPILACAK:
+      // 1) Aşağıya kendi ALTER TABLE / CREATE INDEX / ADD CONSTRAINT komutlarını yaz.
+      // 2) İsimlendirme standardı: ix_* (index), ux_* (unique).
+      // 3) Idempotent olmak istiyorsan önce "var mı?" kontrol et:
+      //    \$hasIndex = function(\\PDO \$pdo, string \$table, string \$name): bool {
+      //        \$sql = "SHOW INDEX FROM `{\$table}` WHERE Key_name = " . \$pdo->quote(\$name);
+      //        return (bool) \$pdo->query(\$sql)->fetch();
+      //    };
+      //    if (!\$hasIndex(\$pdo, 'sayfalar', 'ix_ornek')) {
+      //        \$pdo->exec("ALTER TABLE `sayfalar` ADD INDEX `ix_ornek` (`kolon`)");
+      //    }
+  },
+
+  'down' => function (\\PDO \$pdo): void {
+      // Geri alma (temkinli); örn:
+      // @\$pdo->exec("ALTER TABLE `sayfalar` DROP INDEX `ix_ornek`");
+      // @\$pdo->exec("ALTER TABLE `kategoriler` DROP COLUMN `yeni`");
+  },
+];
+
+PHP;
+
+$ok = file_put_contents($dst, $template);
+if ($ok === false) {
+    fwrite(STDERR, "Hata: dosya yazılamadı: {$dst}\n");
+    exit(1);
+}
+
+// Windows/PowerShell'de bazı editörler BOM ekleyebilir; burada zaten BOM yok.
+// İpuçları: CRLF/LF dönüşümlerini .gitattributes ile yönetiyorsun.
+
+echo "✓ Oluşturuldu: {$dst}\n";
+echo "   id: {$id}\n";
+echo "   Lütfen 'up' içindeki ALTER TABLE / INDEX komutlarını doldur ve ardından:\n";
+echo "     php bin\\migrate up\n";
