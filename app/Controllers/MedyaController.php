@@ -3,9 +3,11 @@ namespace App\Controllers;
 
 use App\Core\Auth;
 use App\Core\Controller;
-use App\Core\DB;          // << EKLE
+use App\Core\DB;
 use App\Core\Csrf;
+use App\Services\Image;
 use PDO;
+use Exception; // <<< EKLE
 
 class MedyaController extends AdminController
 {
@@ -124,106 +126,173 @@ class MedyaController extends AdminController
     // POST /admin/medya/yukle — TinyMCE upload (DB kaydı ile)
     public function upload(): void
     {
+        // JSON döneceğiz
         header('Content-Type: application/json; charset=utf-8');
 
+        // CSRF
+        if (!\App\Core\Csrf::check()) {
+            http_response_code(403);
+            echo json_encode(['ok'=>false,'kod'=>'CSRF_RED','mesaj'=>'Güvenlik doğrulaması başarısız.'], JSON_UNESCAPED_UNICODE);
+            return;
+        }
+
         try {
-            if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
-                http_response_code(405);
-                echo json_encode(['error' => 'method_not_allowed']); return;
+            if (empty($_FILES) || (!isset($_FILES['file']) && !isset($_FILES['dosya']))) {
+                throw new \RuntimeException('dosya_bulunamadi');
             }
-            if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+            $f = $_FILES['file'] ?? $_FILES['dosya'];
 
-            // CSRF (header + post + cookie), OTURUMDAKİ değerle karşılaştır
-            $headerToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-            $postToken   = $_POST['csrf'] ?? $_POST['csrf_token'] ?? '';
-            $cookieToken = $_COOKIE['XSRF-TOKEN'] ?? $_COOKIE['csrf_token'] ?? '';
-            $incoming    = $headerToken ?: $postToken ?: $cookieToken;
-            $sessionTok  = $_SESSION['csrf'] ?? $_SESSION['csrf_token'] ?? '';
-            if (!$incoming || !$sessionTok || !hash_equals((string)$sessionTok, (string)$incoming)) {
-                http_response_code(403);
-                echo json_encode(['error' => 'csrf']); return;
+            if (!isset($f['error']) || is_array($f['error'])) {
+                throw new \RuntimeException('gecersiz_yukleme');
+            }
+            if ($f['error'] !== UPLOAD_ERR_OK) {
+                throw new \RuntimeException('yukleme_hatasi_'.$f['error']);
             }
 
-            if (!isset($_FILES['file']) || ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-                http_response_code(400);
-                echo json_encode(['error' => 'no_file']); return;
+            // Boyut sınırı
+            $maxBytes = defined('MEDYA_MAX_BYTES') ? (int)MEDYA_MAX_BYTES : 8*1024*1024;
+            if ((int)$f['size'] > $maxBytes) {
+                throw new \RuntimeException('dosya_cok_buyuk');
             }
 
-            $f   = $_FILES['file'];
-            $max = 8 * 1024 * 1024;
-            if (($f['size'] ?? 0) <= 0 || $f['size'] > $max) {
-                http_response_code(413);
-                echo json_encode(['error' => 'file_too_large']); return;
+            // MIME doğrulama (config’teki whitelist)
+            $allow = defined('MEDYA_IZINLI_MIMES') ? MEDYA_IZINLI_MIMES : [
+                'image/jpeg'=>['jpg','jpeg'],'image/png'=>['png'],'image/webp'=>['webp'],'image/gif'=>['gif'],
+            ];
+            $finfo = @finfo_open(FILEINFO_MIME_TYPE);
+            $mime  = $finfo ? @finfo_file($finfo, $f['tmp_name']) : null;
+            if ($finfo) @finfo_close($finfo);
+            if (!$mime || !isset($allow[$mime])) {
+                throw new \RuntimeException('izin_verilmeyen_tur');
+            }
+            // SVG güvenlik sebebiyle reddediliyor (zaten whitelistte yok)
+            if ($mime === 'image/svg+xml') {
+                throw new \RuntimeException('svg_desteklenmiyor');
             }
 
-            // MIME
-            $fi   = finfo_open(FILEINFO_MIME_TYPE);
-            $mime = finfo_file($fi, $f['tmp_name']);
-            finfo_close($fi);
-            $allow = ['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp','image/gif'=>'gif'];
-            if (!isset($allow[$mime])) {
-                http_response_code(415);
-                echo json_encode(['error' => 'unsupported_type', 'mime' => $mime]); return;
-            }
-
-            // Güvenli dosya adı
-            $nameOnly = pathinfo($f['name'], PATHINFO_FILENAME);
-            $nameOnly = preg_replace('~[^a-z0-9]+~i', '-', $nameOnly);
+            // Güvenli isim
+            $nameOnly = preg_replace('~[^a-z0-9]+~i', '-', pathinfo($f['name'], PATHINFO_FILENAME));
             $nameOnly = trim($nameOnly, '-') ?: 'image';
-            $ext      = $allow[$mime];
+            $origExt  = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+            $ext      = \App\Services\Image::pickExtension($mime, $origExt);
             $uniq     = bin2hex(random_bytes(3));
             $filename = $nameOnly.'-'.date('Ymd-His').'-'.$uniq.'.'.$ext;
 
-            // Kaydet
-            $publicDir = dirname(__DIR__, 2) . '/public';
-            $targetDir = $publicDir . '/uploads/editor';
-            if (!is_dir($targetDir) && !mkdir($targetDir, 0775, true)) {
-                throw new Exception('upload_dir_unwritable');
-            }
-            if (!is_writable($targetDir)) {
-                throw new Exception('upload_dir_unwritable');
-            }
-            $targetPath = $targetDir . '/' . $filename;
+            // Klasörler
+            $uploadsRoot = defined('MEDYA_KLASOR') ? rtrim(MEDYA_KLASOR, '/\\') : (dirname(__DIR__, 2) . '/public/uploads');
+            $dirFull     = $uploadsRoot . '/editor';
+            $dirThumbs   = $uploadsRoot . '/editor/thumbs';
+            if (!is_dir($dirFull)   && !mkdir($dirFull,   0775, true)) throw new \RuntimeException('upload_dir_full');
+            if (!is_dir($dirThumbs) && !mkdir($dirThumbs, 0775, true)) throw new \RuntimeException('upload_dir_thumbs');
+            if (!is_writable($dirFull) || !is_writable($dirThumbs))     throw new \RuntimeException('upload_dir_yazilamaz');
+
+            $targetPath = $dirFull . '/' . $filename;
+            $canGD = \extension_loaded('gd') && \function_exists('imagecreatetruecolor') && \function_exists('imagecreatefromstring');
             if (!move_uploaded_file($f['tmp_name'], $targetPath)) {
-                throw new Exception('move_failed');
+                throw new \RuntimeException('dosya_tasinamadi');
             }
 
-            // URL ve DB kaydı
-            $yol = '/uploads/editor/'.$filename;
-            $boyut = (int)@filesize($targetPath);
-            $hash  = @hash_file('sha256', $targetPath) ?: '';
-            $w = null; $h = null;
-            if (($info = @getimagesize($targetPath))) { $w = $info[0] ?? null; $h = $info[1] ?? null; }
+            // EXIF strip (JPEG)
+            \App\Services\Image::stripJpegExifIfPossible($targetPath);
 
-            $ins = DB::pdo()->prepare("
-                INSERT INTO medya (yol, mime, boyut, hash, genislik, yukseklik, created_at)
-                VALUES (:yol, :mime, :boyut, :hash, :w, :h, NOW())
-                ON DUPLICATE KEY UPDATE
-                  mime = VALUES(mime),
-                  boyut = VALUES(boyut),
-                  hash = VALUES(hash),
-                  genislik = VALUES(genislik),
-                  yukseklik = VALUES(yukseklik)
-            ");
-            $ins->execute([
-                ':yol'  => $yol,
-                ':mime' => $mime,
-                ':boyut'=> $boyut,
-                ':hash' => $hash,
-                ':w'    => $w,
-                ':h'    => $h,
+            // GIF’lerde animasyon bozulmasın diye yeniden boyutlandırma yapmıyoruz
+            $maxDim = 2560;
+            if ($canGD && $mime !== 'image/gif') {
+                [$w,$h] = @\getimagesize($targetPath) ?: [0,0];
+                if ($w > $maxDim || $h > $maxDim) {
+                    $ratio = min($maxDim / max(1,$w), $maxDim / max(1,$h));
+                    $nw = max(1, (int)floor($w * $ratio));
+                    $nh = max(1, (int)floor($h * $ratio));
+
+                    $src = \imagecreatefromstring(file_get_contents($targetPath));
+                    if ($src) {
+                        $dst = \imagecreatetruecolor($nw, $nh);
+                        imagealphablending($dst, false);
+                        \imagesavealpha($dst, true);
+                        \imagecopyresampled($dst, $src, 0,0,0,0, $nw,$nh, $w,$h);
+
+                        if ($mime === 'image/jpeg') {
+                            \imagejpeg($dst, $targetPath, 82);
+                        } elseif ($mime === 'image/png') {
+                            \imagepng($dst, $targetPath, 6);
+                        } else { // webp
+                            if (function_exists('imagewebp')) {
+                                \imagewebp($dst, $targetPath, 82);
+                            } else {
+                                // webp desteği yoksa PNG’ye düş
+                                \imagepng($dst, $targetPath, 6);
+                                $ext = 'png';
+                                $filename = preg_replace('~\.[a-z0-9]+$~i', '.png', $filename);
+                            }
+                        }
+                        \imagedestroy($dst);
+                        \imagedestroy($src);
+                    }
+                }
+            }
+
+            // Thumbnail (GIF hariç)
+            $thumbName = $filename; // aynı ad, /thumbs/ altında
+            $thumbPath = $dirThumbs . '/' . $thumbName;
+            $yol       = '/uploads/editor/' . $filename;
+            $yolThumb  = null;
+
+            if ($canGD && $mime !== 'image/gif') {
+                [$w,$h] = @\getimagesize($targetPath) ?: [0,0];
+                $tSize = 320;
+                if ($w && $h) {
+                    $ratio = min($tSize / $w, $tSize / $h);
+                    $tw = max(1, (int)floor($w * $ratio));
+                    $th = max(1, (int)floor($h * $ratio));
+                    $src = \imagecreatefromstring(file_get_contents($targetPath));
+                    if ($src) {
+                        $dst = \imagecreatetruecolor($tw, $th);
+                        imagealphablending($dst, false);
+                        \imagesavealpha($dst, true);
+                        \imagecopyresampled($dst, $src, 0,0,0,0, $tw,$th, $w,$h);
+
+                        if ($mime === 'image/jpeg')       \imagejpeg($dst, $thumbPath, 82);
+                        elseif ($mime === 'image/png')    \imagepng($dst, $thumbPath, 6);
+                        elseif ($mime === 'image/webp' && function_exists('imagewebp')) \imagewebp($dst, $thumbPath, 82);
+                        else                                \imagepng($dst, $thumbPath, 6);
+
+                        \imagedestroy($dst);
+                        \imagedestroy($src);
+                        $yolThumb = '/uploads/editor/thumbs/' . $thumbName;
+                    }
+                }
+            }
+
+            // Meta
+            $boyut = (int)@filesize($targetPath);
+            $hash  = @sha1_file($targetPath) ?: null;
+            [$W,$H] = @\getimagesize($targetPath) ?: [null,null];
+
+            // DB kaydı
+            $sql = "INSERT INTO medya (yol, yol_thumb, mime, boyut, hash, genislik, yukseklik, created_at)
+                    VALUES (:yol, :yol_thumb, :mime, :boyut, :hash, :w, :h, NOW())
+                    ON DUPLICATE KEY UPDATE
+                      yol_thumb = VALUES(yol_thumb),
+                      mime      = VALUES(mime),
+                      boyut     = VALUES(boyut),
+                      genislik  = VALUES(genislik),
+                      yukseklik = VALUES(yukseklik)";
+            $st = \App\Core\DB::pdo()->prepare($sql);
+            $st->execute([
+                ':yol'       => $yol,
+                ':yol_thumb' => $yolThumb,
+                ':mime'      => $mime,
+                ':boyut'     => $boyut,
+                ':hash'      => $hash,
+                ':w'         => $W,
+                ':h'         => $H,
             ]);
 
-            $baseUrl = defined('BASE_URL')
-                ? rtrim(BASE_URL, '/')
-                : ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http')
-                   . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost'));
-
-            $ver = filemtime($targetPath) ?: time();
-            echo json_encode(['location' => $baseUrl.$yol.'?v='.$ver], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
-        } catch (Exception $e) {
-            http_response_code(500);
-            echo json_encode(['error' => 'server_error', 'detail' => $e->getMessage()]);
+            // TinyMCE "location" bekliyor
+            echo json_encode(['ok'=>true, 'location'=> $yol, 'thumb' => $yolThumb], JSON_UNESCAPED_UNICODE);
+        } catch (\Throwable $e) {
+            http_response_code(400);
+            echo json_encode(['ok'=>false,'kod'=>'UPLOAD_ERR','mesaj'=>$e->getMessage()], JSON_UNESCAPED_UNICODE);
         }
     }
 
@@ -232,17 +301,10 @@ class MedyaController extends AdminController
         if (!\App\Core\Csrf::check()) {
             http_response_code(403);
             header('Content-Type: application/json; charset=utf-8');
+            while (ob_get_level()) { ob_end_clean(); }
             echo json_encode(['ok'=>false,'kod'=>'CSRF_RED','mesaj'=>'Güvenlik doğrulaması başarısız.'], JSON_UNESCAPED_UNICODE);
             exit;
         }
-    }
-
-    private function json(array $data, int $code = 200)
-    {
-        http_response_code($code);
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        return null;
     }
 
     private function jerr(int $code, string $tag, string $msg)

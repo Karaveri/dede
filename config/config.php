@@ -30,6 +30,21 @@ defined('DB_PASS')    || define('DB_PASS', '');
 defined('DB_CHARSET') || define('DB_CHARSET', 'utf8mb4');
 defined('DB_PORT')    || define('DB_PORT', 3306);
 
+/* ---- Medya Ayarları ---- */
+// Maksimum dosya boyutu (8 MB)
+defined('MEDYA_MAX_BYTES') || define('MEDYA_MAX_BYTES', 8 * 1024 * 1024);
+
+// Yükleme klasörü (mutlak dosya yolu)
+defined('MEDYA_KLASOR')    || define('MEDYA_KLASOR', dirname(__DIR__) . '/public/uploads');
+
+// İzinli MIME türleri ve uzantıları (MIME => [uzantılar])
+defined('MEDYA_IZINLI_MIMES') || define('MEDYA_IZINLI_MIMES', [
+    'image/jpeg' => ['jpg','jpeg'],
+    'image/png'  => ['png'],
+    'image/webp' => ['webp'],
+    'image/gif'  => ['gif'],
+]);
+
 /* ---- Rezerve (yasak) slug'lar ---- */
 if (!defined('RESERVED_SLUGS')) {
     define('RESERVED_SLUGS', [
@@ -56,4 +71,14 @@ if (!headers_sent()) {
             'samesite' => 'Lax',
         ]);
     }
+
 }
+/* ---- Medya Ayarları ---- */
+defined('MEDYA_MAX_BYTES') || define('MEDYA_MAX_BYTES', 8 * 1024 * 1024); // Maksimum yükleme (8 MB)
+defined('MEDYA_KLASOR')    || define('MEDYA_KLASOR', dirname(__DIR__) . '/public/uploads'); // Yükleme kök klasörü (public/uploads)
+defined('MEDYA_IZINLI_MIMES') || define('MEDYA_IZINLI_MIMES', [
+    'image/jpeg' => ['jpg','jpeg'],
+    'image/png'  => ['png'],
+    'image/webp' => ['webp'],
+    'image/gif'  => ['gif'],
+]);

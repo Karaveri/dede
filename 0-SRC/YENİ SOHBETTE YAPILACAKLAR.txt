@@ -1,0 +1,96 @@
+YENİ SOHBETTE YAPILACAKLAR:
+
+1) Mesaj-1: Başlatma Bloğu (yeni sohbete ilk mesaj)
+Bunu aynen yapıştır, sadece köşeli yerleri doldur:
+
+Proje: PHP Kişisel Site (aynı repo).
+Görev: [tek cümle — örn: “Sayfalar listesinde durum+silindi filtresi ve sayfalama.”]
+İlgili dosyalar: [örn: app/Controllers/SayfalarController.php, app/Models/SayfaModel.php]
+Son yaptığım değişiklikler (kısa):
+- [örn: slug_aktif generated column eklendi, ux_sayfalar_slug_aktif unique; kategoriler parent_id FK]
+Aşağıda komut çıktıları gelecek.
+
+Bu mesajı gönderdikten sonra komutları çalıştırıp çıktıları bir sonraki mesajda yollayacaksın.
+********************************************************************************************************
+
+2) Mesaj-2: Komut Çıktıları (kopyala-yapıştır)
+PowerShell’de proje kökünde (C:\xampp\htdocs\fevzi) şunları çalıştır:
+********************************************************************************************************
+2.1. Dosya durumu + diff
+Powershell komutları
+
+# 2 seviye dizin görünümü (hızlı fikir)
+Get-ChildItem -Recurse -Depth 2 | Select-Object FullName
+# Git’te neler değişmiş?
+git status -s
+# Değişikliklerin yamalı diff'i (kısa)
+git diff --patch --minimal
+********************************************************************************************************
+
+2.2. Migration durumu
+Powershell komutları
+
+php bin\migrate status
+********************************************************************************************************
+
+2.3. DB indeks/constraint durumu (isteğe bağlı ama faydalı)
+phpMyAdmin’de “Sorgu”da çalıştır, sonuç tablolarını kopyala:
+
+-- sayfalar & kategoriler indexleri
+SHOW INDEX FROM sayfalar;
+SHOW INDEX FROM kategoriler;
+-- yonlendirmeler uniq
+SHOW INDEX FROM yonlendirmeler WHERE Key_name IN ('ux_yonl_kaynak','ix_yonl_aktif');
+-- self-FK kontrol
+SELECT CONSTRAINT_NAME
+FROM information_schema.REFERENTIAL_CONSTRAINTS
+WHERE CONSTRAINT_SCHEMA = DATABASE()
+  AND CONSTRAINT_NAME = 'fk_kategoriler_parent_self_1';
+
+Sonra: Bu komutların çıplak çıktısını ikinci mesaja yapıştır.
+Ben bu üç bloktan projeyi “yerinde” kavrıyorum; eksik dosya içerikleri kalırsa sadece ilgili dosyayı tam metin olarak atarsın:
+
+# Örn: tek bir dosyanın tamamını gönder
+Get-Content -Raw app\Controllers\SayfalarController.php
+********************************************************************************************************
+
+İstersen otomatik “rapor dosyası”
+Tek tek kopyalamak istemezsen şu komut tek bir context.txt üretir; onu açıp tamamını ikinci mesaja yapıştır:
+Powershell komutları:
+
+$OUT="context.txt"
+"=== TREE (depth=2) ==="        | Out-File $OUT -Encoding UTF8
+Get-ChildItem -Recurse -Depth 2 | Select FullName | Out-File $OUT -Append -Encoding UTF8
+"`n=== GIT STATUS ==="          | Out-File $OUT -Append -Encoding UTF8
+git status -s                   | Out-File $OUT -Append -Encoding UTF8
+"`n=== GIT DIFF ==="            | Out-File $OUT -Append -Encoding UTF8
+git diff --patch --minimal      | Out-File $OUT -Append -Encoding UTF8
+"`n=== MIGRATE STATUS ==="      | Out-File $OUT -Append -Encoding UTF8
+php bin\migrate status          | Out-File $OUT -Append -Encoding UTF8
+notepad $OUT
+********************************************************************************************************
+
+Doldurulmuş örnek (gör)
+Mesaj-1 örnek:
+
+"Proje: PHP Kişisel Site (aynı repo).
+
+Görev: Sayfalar listesinde durum+silindi filtresi ve sayfalama.
+
+İlgili dosyalar: app/Controllers/SayfalarController.php, app/Models/SayfaModel.php
+
+Son yaptığım değişiklikler (kısa):
+- sayfalar.slug_aktif + UNIQUE ux_sayfalar_slug_aktif.
+- kategoriler.parent_id -> fk_kategoriler_parent_self_1.
+- yonlendirmeler.kaynak -> ux_yonl_kaynak.
+Aşağıda komut çıktıları var."
+
+Mesaj-2: Bir önceki bölümdeki komutların ham çıktıları.
+********************************************************************************************************
+
+Neden bu kadar?
+Ben önceki sohbetin dosyalarına erişemem (güvenlik). O yüzden sadece “güncel diff + migrate + (opsiyonel) indexler” bana cerrahi bağlam sağlar.
+Her yeni oturumda bu iki mesajı atınca, “neredeydik?” faslı 30 saniyeye düşer; ben doğrudan kodu revize eder, migration önerir, hatayı net çözerim.
+
+Devam edelim: şimdi yeni bir mini görev seç ve Mesaj-1 şablonunu burada doldur. Ardından komutları çalıştırıp Mesaj-2 olarak çıktıları yapıştır. Ben de anında üstüne kod/migration ile ilerleyeyim.
+
