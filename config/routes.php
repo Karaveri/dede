@@ -52,7 +52,7 @@ Router::get ('/admin/kategoriler/cop',             [KategorilerDenetleyici::clas
 Router::post('/admin/kategoriler/cop/geri-al',     [KategorilerDenetleyici::class, 'copGeriAl'], ['auth','csrf','rate:60,60']);
 Router::post('/admin/kategoriler/yok-et',          [KategorilerDenetleyici::class, 'yokEt'],     ['auth','csrf','rate:30,60']); // kalıcı sil daha sıkı
 Router::post('/admin/kategoriler/cop/kalici-sil',  [KategorilerDenetleyici::class, 'copKaliciSil'], ['auth','csrf','rate:30,60']);
-Router::get('/admin/kategoriler/cop/say',          [KategorilerDenetleyici::class, 'copSayJson'], ['auth']);
+Router::get('/admin/kategoriler/cop/say',          [KategorilerDenetleyici::class, 'copSayJsoz'], ['auth']);
 Router::post('/admin/kategoriler/sil',             [KategorilerDenetleyici::class, 'sil'],       ['auth','csrf','rate:60,60']);
 Router::post('/admin/kategoriler/sil-toplu',       [KategorilerDenetleyici::class, 'silToplu'],  ['auth','csrf','rate:60,60']);
 Router::post('/admin/kategoriler/geri-al',         [KategorilerDenetleyici::class, 'geriAl'],    ['auth','csrf','rate:60,60']);
@@ -67,6 +67,7 @@ Router::get ('/admin/medya',            [MedyaController::class, 'index'],     [
 Router::post('/admin/medya/sil',        [MedyaController::class, 'sil'],       ['auth','csrf','rate:120,60']);     // sık ama hafif
 Router::post('/admin/medya/toplu-sil',  [MedyaController::class, 'topluSil'],  ['auth','csrf','rate:120,60']);
 Router::post('/admin/medya/yukle',      [MedyaController::class, 'upload'],    ['auth','csrf','rate:30,60']);      // upload daha sıkı
+Router::post('/admin/medya/thumb-fix', [MedyaController::class, 'thumbFix'], ['auth','csrf','rate:30,300']);
 
 // Yönlendirmeler (admin)
 Router::get('/admin/yonlendirmeler',            [App\Controllers\YonlendirmelerDenetleyici::class, 'index'],    ['auth']);

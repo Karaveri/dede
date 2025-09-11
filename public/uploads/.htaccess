@@ -16,3 +16,23 @@ RemoveType    .php .phtml .phar .php5 .php7 .php8 .cgi .pl .asp .aspx .jsp
 <IfModule mod_headers.c>
   Header set X-Content-Type-Options "nosniff"
 </IfModule>
+
+# ---- Uzun süreli cache (fingerprintli dosyalar için güvenli) ----
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType image/jpeg "access plus 1 year"
+  ExpiresByType image/png  "access plus 1 year"
+  ExpiresByType image/webp "access plus 1 year"
+  # GIF kullanmayacağız ama yine de:
+  ExpiresByType image/gif  "access plus 1 year"
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header set Cache-Control "public, max-age=31536000, immutable"
+  # İstersen ETag'ı kapatıp sadece URL fingerprint'e güvenebilirsin:
+  Header unset ETag
+  FileETag None
+</IfModule>
+# ---------------------------------------------------------------
+
+AddType image/webp .webp

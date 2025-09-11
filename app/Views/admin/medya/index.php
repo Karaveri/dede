@@ -2,6 +2,7 @@
 // app/Views/admin/medya/index.php
 use App\Core\Csrf;
 
+if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 $mesaj = $_SESSION['mesaj'] ?? null; unset($_SESSION['mesaj']);
 $hata  = $_SESSION['hata']  ?? null; unset($_SESSION['hata']);
 
@@ -9,12 +10,15 @@ $q           = $_GET['q'] ?? '';
 $sayfa       = max(1, (int)($_GET['s'] ?? 1));
 $sayfaSayisi = $sayfaSayisi ?? 1;
 
-if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 $csrfVal = $_SESSION['csrf'] ?? $_SESSION['csrf_token'] ?? (\App\Core\Csrf::token());
 $BASE = rtrim(BASE_URL, '/');
 ?>
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="h5 m-0">Medya Kütüphanesi</h1>
+  <form method="post" action="<?= $BASE ?>/admin/medya/thumb-fix" class="ms-2">
+    <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfVal, ENT_QUOTES, 'UTF-8') ?>">
+    <button type="submit" class="btn btn-sm btn-outline-secondary">Eksik küçük görselleri üret</button>
+  </form>
 </div>
 
 <?php if ($mesaj): ?><div class="alert alert-success py-2"><?= htmlspecialchars($mesaj) ?></div><?php endif; ?>
@@ -28,22 +32,18 @@ $BASE = rtrim(BASE_URL, '/');
     <button class="btn btn-sm btn-secondary">Ara</button>
   </div>
 </form>
-<div class="card mb-3">
-  <div class="card-body">
-    <form id="medyaYukleForm" action="<?= BASE_URL ?>/admin/medya/yukle" method="post" enctype="multipart/form-data">
-      <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfVal, ENT_QUOTES, 'UTF-8') ?>">
-      <div class="row g-2 align-items-end">
-        <div class="col-sm-6">
-          <label for="file" class="form-label">Görsel seç</label>
-          <input type="file" class="form-control" id="file" name="file" accept="image/*" required>
-          <div class="form-text">İzinli türler: JPEG, PNG, WEBP, GIF • Maksimum 8 MB</div>
-        </div>
-        <div class="col-auto">
-          <button type="submit" class="btn btn-primary">Yükle</button>
-        </div>
-      </div>
-    </form>
+<div class="row g-2">
+  <div id="dropZone" class="border rounded p-4 text-center">
+    <div class="fw-semibold mb-1">Dosyaları buraya sürükleyip bırak</div>
+    <div class="small text-muted" style="color: white !important;">veya tıklayıp seç</div>
   </div>
+
+  <!-- Gizli dosya input'u: JS tıklamada bunu açacak -->
+  <input type="file" id="file" name="file"
+         accept="image/jpeg,image/png,image/webp"
+         multiple hidden>
+
+  <div class="form-text mt-2">İzinli türler: JPEG, PNG, WEBP • Maksimum 8 MB</div>
 </div>
 
 <div id="medyaSonuc"></div>
@@ -73,7 +73,7 @@ $BASE = rtrim(BASE_URL, '/');
             <!-- Küçük görsele tıklayınca modal önizleme -->
           <?php $thumb = !empty($m['yol_thumb'] ?? null) ? $m['yol_thumb'] : $m['yol']; ?>
             <a href="#" class="ratio ratio-1x1 media-thumb" data-src="<?= $BASE . $m['yol'] ?>">
-              <img src="<?= $BASE . $thumb ?>" alt="" class="card-img-top" style="object-fit:cover;">
+              <img loading="lazy" decoding="async" src="<?= $BASE . $thumb ?>" alt="" class="card-img-top" style="object-fit:cover;">
             </a>
             <div class="card-body p-2">
               <div class="small text-truncate" title="<?= htmlspecialchars($m['yol']) ?>">
@@ -128,7 +128,7 @@ $BASE = rtrim(BASE_URL, '/');
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
       </div>
       <div class="modal-body">
-        <img id="mediaModalImg" src="" alt="" class="img-fluid w-100">
+        <img id="mediaModalImg" src="" alt="" class="imgCenter">
       </div>
       <div class="modal-footer gap-2">
         <input type="text" id="mediaUrl" class="form-control form-control-sm" readonly>

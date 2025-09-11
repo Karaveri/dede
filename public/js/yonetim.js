@@ -1,3 +1,83 @@
+// Güvenli BASE kestirici (yoksa oluştur)
+if (typeof window.__guessBase !== 'function') {
+  window.__guessBase = function () {
+    // Örn: /fevzi/public/admin/medya  =>  /fevzi/public
+    const p = window.location.pathname || '';
+    const i = p.indexOf('/admin/');
+    return i > 0 ? p.slice(0, i) : '';
+  };
+}
+
+function __normUploadUrl(u) {
+  if (!u || typeof u !== 'string') return '';
+  try {
+    const b = (typeof __guessBase === 'function') ? __guessBase() : '';
+    // /uploads/... gibi kökten başlayan yolları BASE ile birleştir
+    return (u[0] === '/') ? (b + u) : u;
+  } catch (_) {
+    return u; // her ihtimale karşı sessiz düş
+  }
+}
+
+function __medyaAddCard(urlRaw, thumbRaw) {
+  const url   = __normUploadUrl(urlRaw || '');
+  const thumb = __normUploadUrl(thumbRaw || '');
+  const imgUrl = thumb || url;
+  if (!url) return;
+
+  const hedef = document.getElementById('medyaSonuc') || document.querySelector('.container') || document.body;
+
+  const card = document.createElement('div');
+  card.className = 'card mb-3';
+  card.innerHTML = `
+    <div class="card-body d-flex align-items-center gap-3">
+      <img src="${imgUrl}" alt="" style="width:96px;height:96px;object-fit:cover;border-radius:.5rem;">
+      <div>
+        <div><strong>${url.split('/').pop().split('?')[0]}</strong></div>
+        <div class="text-muted small">Yüklendi</div>
+        <div class="d-flex gap-2">
+          <a class="link-primary" href="${url}" target="_blank" rel="noopener">Görüntüle</a>
+          <button type="button" class="btn btn-sm btn-outline-secondary js-copy-url" data-url="${url}">Kopyala</button>
+        </div>
+      </div>
+    </div>`;
+  hedef.prepend(card);
+}
+
+// ==== XHR yardımcı: gerçek byte ilerleme için ====
+function __xhrUpload(endpoint, fd, token, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', endpoint, true);
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    if (token) xhr.setRequestHeader('X-CSRF-Token', token);
+    xhr.responseType = 'text';
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && typeof onProgress === 'function') onProgress(e.loaded, e.total);
+    };
+    xhr.onerror = () => reject(new Error('network'));
+    xhr.onload = () => resolve(xhr);
+    xhr.send(fd);
+  });
+}
+
+// Basit ilerleme çubuğu üretici
+function __makeProgressBar() {
+  const wrap = document.createElement('div');
+  wrap.className = 'progress mb-3';
+  wrap.innerHTML = `<div class="progress-bar" role="progressbar" style="width:0%">0%</div>`;
+  const bar = wrap.firstElementChild;
+  return {
+    el: wrap,
+    set(pct, label) {
+      const p = Math.max(0, Math.min(100, Math.round(pct)));
+      bar.style.width = p + '%';
+      bar.textContent = (label ? `${p}% – ${label}` : p + '%');
+    },
+    removeLater() { setTimeout(() => wrap.remove(), 800); }
+  };
+}
+
 const csrfMeta = document.querySelector('meta[name="csrf-token"]');
 // --- CSRF yardımcı (tek kaynak) ---
 function getCsrfToken(scope){
@@ -463,93 +543,209 @@ async function refreshCopBadge(){
 }
 document.addEventListener('DOMContentLoaded', refreshCopBadge);
 
-// ==== Medya Yükleme (AJAX, sağlamlaştırılmış) ====
-function __bindMedyaUpload(){
-  const form = document.getElementById('medyaYukleForm');
-  if (!form) return;
+// ==== Medya Yükleme (byte progress + multiple + drag&drop) ====
+function __bindMedyaUpload() {
+  const form = document.getElementById('medyaYukleForm')
+           || document.querySelector('form[action*="/admin/medya/yukle"]')
+           || document.getElementById('medyaForm')  // varsa toplu sil formu
+           || document.body;                        // en son çare
+  // formsuz modda bile devam ediyoruz (return yok)
 
-  // Hem "file" hem "dosya" adına destek (formu A adımında "file" yaptık)
-  const fileInput =
-    form.querySelector('input[type="file"][name="file"]') ||
-    form.querySelector('input[type="file"][name="dosya"]');
+  if (form.dataset.uploadBound === '1') return; // ikinci kez bağlama
+  form.dataset.uploadBound = '1';
 
-  // Birden fazla bağlanmayı engelle
-  if (form.__medyaInit) return;
-  form.__medyaInit = true;
+  let fileInput = form.querySelector('input[type="file"]');
+  if (!fileInput) {
+    // Yedek: input formda yoksa dinamik oluştur
+    fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.name = 'file';
+    fileInput.accept = 'image/jpeg,image/png,image/webp';
+    fileInput.multiple = true;
+    fileInput.hidden = true;
+    form.appendChild(fileInput);
+  }
 
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault(); // normal submit yok
+  const endpoint =
+    document.querySelector('form[action*="/admin/medya/yukle"]')?.getAttribute('action')
+    || (__guessBase() + '/admin/medya/yukle');
+  const token = getCsrfToken(form);
+  const hedef = document.getElementById('medyaSonuc') || document.body;
+  const btn = form.querySelector('#btnUpload') || form.querySelector('button[type="submit"]');  
+  let prog = null; // progress bar, dış scope
 
-    const file = fileInput?.files?.[0];
-    if (!file) { alert('Yüklenecek dosyayı seçmelisin.'); return; }
+  // Butona basınca yükle (native submit yerine)
+  btn?.addEventListener('click', (e) => {
+    e.preventDefault();
+    runUpload(fileInput.files);
+  });
 
-    // FormData (mevcut form alanları + dosya)
-    const fd = new FormData(form);
-    // Güvenlik için "dosya" adıyla geldiyse "file" anahtarını da ekle
-    if (fileInput?.name === 'dosya' && !fd.has('file')) fd.append('file', file);
+  // Dosya seçer seçmez otomatik yükle (tek ya da çoklu)
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files && fileInput.files.length) runUpload(fileInput.files);
+  });  
 
-    const token =
-      (typeof getCsrfToken === 'function' && getCsrfToken(form)) ||
-      document.querySelector('meta[name="csrf-token"]')?.content ||
-      document.getElementById('csrf')?.value || '';
+  // İstemci tarafı sınırlar (8MB ve tür filtresi)
+  const MAX_BYTES = Number(form.dataset.maxBytes || 8*1024*1024);
+  const ALLOW = new Set(['image/jpeg','image/png','image/webp']);
+  if (!fileInput.getAttribute('accept')) {
+    fileInput.setAttribute('accept','image/jpeg,image/png,image/webp');
+  }
 
-    if (token && !fd.has('csrf')) fd.append('csrf', token);
+  // Tek dosya yükle
+  async function uploadOne(file) {
 
-    const endpoint = form.getAttribute('action') || '/admin/medya/yukle';
+    // İstemci kontrolü: tür + boyut
+    if (!ALLOW.has(file.type)) {
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      const msg = `Desteklenmeyen tür: ${ext || file.type || 'bilinmiyor'}. Sadece JPEG, PNG, WEBP.`;
+      (typeof showToast === 'function') ? showToast(msg, 'info') : alert(msg);
+      return;
+    }
+    if (file.size > MAX_BYTES) {
+      const mb = (file.size/1048576).toFixed(2);
+      const msg = `Dosya çok büyük (${mb} MB). İzin verilen en fazla ${(MAX_BYTES/1048576).toFixed(0)} MB.`;
+      (typeof showToast === 'function') ? showToast(msg, 'info') : alert(msg);
+      return;
+    } 
+
+    // FormData (form alanlarını kopyala + dosyayı ekle)
+    const fd = new FormData();           // formları kopyalama yok
+    fd.append('file', file);
+    if (token) fd.append('csrf', token); // CSRF’i sayfadan okuduk
+
+    // XHR ile yükle, byte bazlı ilerleme
+    const xhr = await __xhrUpload(endpoint, fd, token, (loaded, total) => {
+      const label = `${file.name} (${(loaded/1048576).toFixed(2)} / ${(total/1048576).toFixed(2)} MB)`;
+      if (prog) prog.set((loaded / total) * 100, label);
+    });
+
+    // Yanıtı işle
+    const raw = xhr.responseText || '';
+    let data = {}; try { data = JSON.parse(raw); } catch {}
+    const ok = xhr.status >= 200 && xhr.status < 300 && data && (data.ok !== false);
+    const rawUrl   = (data && (data.url || data.location)) || '';
+    const rawThumb = (data && data.thumb) || '';
+    if (!ok || (!rawUrl && !rawThumb)) {
+      const msg = (data && (data.mesaj || data.error)) || `Yükleme başarısız (HTTP ${xhr.status})`;
+      (typeof showToast === 'function') ? showToast(msg, 'info') : alert(msg);
+      return;
+    }
+    __medyaAddCard(rawUrl, rawThumb);
+  }
+
+  // Çoklu yükleme: sırayla
+  async function runUpload(files) {
+    const list = Array.from(files || []);
+    if (!list.length) {
+      (typeof showToast === 'function') ? showToast('Yüklenecek dosya yok.', 'info') : alert('Yüklenecek dosya yok.');
+      return;
+    }
+
+    // --- burada kilidi set et ---
+    if (form.dataset.uploadRunning === '1') return;
+    form.dataset.uploadRunning = '1';
+
+    // --- progress bar'ı burada oluştur ---
+    prog = __makeProgressBar();
+    (document.getElementById('medyaSonuc') || document.body).prepend(prog.el);
+
+    // butonu kilitle
+    (form.querySelector('#btnUpload') || form.querySelector('button[type="submit"],input[type="submit"]'))?.setAttribute('disabled','disabled');
 
     try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'X-CSRF-Token': token,
-          'X-Requested-With': 'XMLHttpRequest',
-          'Accept': 'application/json'
-        },
-        body: fd
-      });
-
-      const raw = await res.text();
-      let data; try { data = JSON.parse(raw); } catch { data = {}; }
-
-      // Başarı iki biçimde gelebilir: {url:'...'} veya {location:'...'}
-      const url = data.url || data.location || '';
-      if (!res.ok || !url) {
-        const msg =
-          data.mesaj ||
-          (res.status === 413 ? 'Dosya boyutu izin verilen sınırı aşıyor.' :
-           res.status === 415 ? 'Desteklenmeyen içerik türü.' :
-           (res.status === 419 || res.status === 403) ? 'Oturum doğrulaması başarısız (CSRF).' :
-           `Yükleme başarısız (HTTP ${res.status})`);
-        if (typeof showToast === 'function') showToast(msg, 'info'); else alert(msg);
-        return;
+      for (const f of list) {
+        await uploadOne(f);
       }
-
-      if (typeof showToast === 'function') showToast('Yükleme başarılı.', 'success');
-
-      // Basit önizleme kartı
-      const sonuc = document.getElementById('medyaSonuc') || document.body;
-      const card = document.createElement('div');
-      card.className = 'card mb-3';
-      card.innerHTML = `
-        <div class="card-body d-flex align-items-center gap-3">
-          <img src="${url}" alt="" style="width:96px;height:96px;object-fit:cover;border-radius:.5rem;">
-          <div>
-            <div><strong>${url.split('/').pop().split('?')[0]}</strong></div>
-            <div class="text-muted small">Yüklendi</div>
-            <div><a class="link-primary" href="${url}" target="_blank" rel="noopener">Görüntüle</a></div>
-          </div>
-        </div>`;
-      sonuc.prepend(card);
+      (typeof showToast === 'function') ? showToast('Yükleme tamamlandı.', 'success') : null;
       form.reset();
-    } catch (err) {
-      console.error(err);
-      if (typeof showToast === 'function') showToast('İstek gönderilemedi. Ağ hatası olabilir.', 'info'); else alert('İstek gönderilemedi.');
+      prog.set(100, 'Tamamlandı');
+    } catch (e) {
+      console.error(e);
+      (typeof showToast === 'function') ? showToast('Ağ hatası oluştu.', 'info') : alert('Ağ hatası oluştu.');
+    } finally {
+      (form.querySelector('#btnUpload') || form.querySelector('button[type="submit"],input[type="submit"]'))?.removeAttribute('disabled');
+      delete form.dataset.uploadRunning;
+      if (prog) { prog.removeLater(); prog = null; }
+    }
+  }
+
+  // Güvenlik: herhangi bir nedenle native submit tetiklense bile tamamen engelle
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    // Bilerek runUpload çağırmıyoruz; native submit'i sadece iptal ediyoruz.
+  }, { capture: true, passive: false });
+
+  // Drag & drop: formu hedef alan yap
+  const drop = document.getElementById('dropZone') || form;
+
+  // Dropzone erişilebilirlik ve tıklanabilirlik
+  drop.setAttribute('role','button');
+  drop.setAttribute('tabindex','0');
+  drop.style.cursor = 'pointer';
+  drop.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      drop.click();
+    }
+  });  
+
+  ['dragenter','dragover'].forEach(evt => drop.addEventListener(evt, (e) => {
+    e.preventDefault(); e.stopPropagation();
+    drop.classList.add('is-dragover');
+  }));
+
+  ['dragleave','dragend','drop'].forEach(evt => drop.addEventListener(evt, (e) => {
+    if (evt !== 'drop') { e.preventDefault(); e.stopPropagation(); }
+    drop.classList.remove('is-dragover');
+  }));
+
+  drop.addEventListener('drop', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const files = Array.from(e.dataTransfer?.files || []);
+    runUpload(files);
+  });
+
+  // Drop alanına tıklayınca dosya seçici açılsın
+  drop.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Chromium destekliyorsa en temiz yol
+    if (typeof fileInput.showPicker === 'function') {
+      try { fileInput.showPicker(); return; } catch (_) { /* fallback'e geç */ }
+    }
+
+    // Fallback: input gizliyse anlık görünür/erişilebilir yap, tıkla, tekrar gizle
+    const wasHiddenAttr = fileInput.hasAttribute('hidden');
+    if (wasHiddenAttr) fileInput.removeAttribute('hidden');
+
+    const prevStyle = fileInput.getAttribute('style') || '';
+    // Ekran dışına taşı – display:none YAPMA
+    fileInput.setAttribute('style', (prevStyle ? prevStyle + '; ' : '') +
+      'position:fixed;left:0;top:0;opacity:0.01;width:1px;height:1px;');
+
+    try { fileInput.click(); } finally {
+      // kısa bir gecikmeyle eski duruma dön
+      setTimeout(() => {
+        fileInput.setAttribute('style', prevStyle);
+        if (wasHiddenAttr) fileInput.setAttribute('hidden','');
+      }, 0);
     }
   });
 }
 
 // Dinleyici bağlama: DOM hazır olduktan sonra
-document.addEventListener('DOMContentLoaded', __bindMedyaUpload, { once: true });
+if (document.readyState !== 'loading') {
+  __bindMedyaUpload();
+} else {
+  if (document.readyState !== 'loading') {
+    __bindMedyaUpload();
+  } else {
+    document.addEventListener('DOMContentLoaded', __bindMedyaUpload, { once: true });
+  }
+}
 
 // === TEK ve KESİN durum toggle handler ===
 document.addEventListener('click', async (e) => {

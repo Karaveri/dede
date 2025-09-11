@@ -40,7 +40,7 @@ class MedyaController extends AdminController
         $sayfaSayisi = max(1, (int)ceil($toplam / $limit));
 
         // Liste
-        $sql = "SELECT id, yol, mime, genislik, yukseklik
+        $sql = "SELECT id, yol, yol_thumb, mime, genislik, yukseklik
                 FROM medya $where
                 ORDER BY id DESC
                 LIMIT :l OFFSET :o";
@@ -77,14 +77,23 @@ class MedyaController extends AdminController
         $id = (int)($_POST['id'] ?? 0);
         if ($id <= 0) { header('Location: '.BASE_URL.'/admin/medya'); return; }
 
-        $s = DB::pdo()->prepare('SELECT yol FROM medya WHERE id = ? LIMIT 1');
+        $s = DB::pdo()->prepare('SELECT yol, yol_thumb FROM medya WHERE id = ? LIMIT 1');
         $s->execute([$id]);
         $row = $s->fetch(PDO::FETCH_ASSOC);
 
         if ($row) {
             DB::pdo()->prepare('DELETE FROM medya WHERE id = ?')->execute([$id]);
-            $abs = dirname(__DIR__, 2) . '/public' . $row['yol'];
+            $root = dirname(__DIR__, 2) . '/public';
+
+            // asıl dosya
+            $abs = $root . $row['yol'];
             if (is_file($abs)) @unlink($abs);
+
+            // thumb temizliği
+            $tp = !empty($row['yol_thumb'])
+                ? $root . $row['yol_thumb']
+                : $root . preg_replace('~^/uploads/editor/~', '/uploads/editor/thumbs/', $row['yol']);
+            if ($tp && is_file($tp)) @unlink($tp);
             $_SESSION['mesaj'] = 'Görsel silindi.';
         }
         header('Location: '.BASE_URL.'/admin/medya');
@@ -107,7 +116,7 @@ class MedyaController extends AdminController
         if (!$ids) { header('Location: '.BASE_URL.'/admin/medya'); return; }
 
         $in  = implode(',', array_fill(0, count($ids), '?'));
-        $s   = DB::pdo()->prepare("SELECT id, yol FROM medya WHERE id IN ($in)");
+        $s   = DB::pdo()->prepare("SELECT id, yol, yol_thumb FROM medya WHERE id IN ($in)");
         $s->execute($ids);
         $rows = $s->fetchAll(PDO::FETCH_ASSOC);
 
@@ -118,6 +127,10 @@ class MedyaController extends AdminController
         foreach ($rows as $r) {
             $abs = $base . $r['yol'];
             if (is_file($abs)) @unlink($abs);
+            $tp = !empty($r['yol_thumb'])
+                ? $base . $r['yol_thumb']
+                : $base . preg_replace('~^/uploads/editor/~', '/uploads/editor/thumbs/', $r['yol']);
+            if ($tp && is_file($tp)) @unlink($tp);            
         }
         $_SESSION['mesaj'] = count($rows).' görsel silindi.';
         header('Location: '.BASE_URL.'/admin/medya');
@@ -157,7 +170,9 @@ class MedyaController extends AdminController
 
             // MIME doğrulama (config’teki whitelist)
             $allow = defined('MEDYA_IZINLI_MIMES') ? MEDYA_IZINLI_MIMES : [
-                'image/jpeg'=>['jpg','jpeg'],'image/png'=>['png'],'image/webp'=>['webp'],'image/gif'=>['gif'],
+                'image/jpeg'=>['jpg','jpeg'],
+                'image/png' =>['png'],
+                'image/webp'=>['webp'],
             ];
             $finfo = @finfo_open(FILEINFO_MIME_TYPE);
             $mime  = $finfo ? @finfo_file($finfo, $f['tmp_name']) : null;
@@ -174,7 +189,15 @@ class MedyaController extends AdminController
             $nameOnly = preg_replace('~[^a-z0-9]+~i', '-', pathinfo($f['name'], PATHINFO_FILENAME));
             $nameOnly = trim($nameOnly, '-') ?: 'image';
             $origExt  = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
-            $ext      = \App\Services\Image::pickExtension($mime, $origExt);
+
+            // Yetenekler
+            $canGD   = \extension_loaded('gd') && \function_exists('imagecreatetruecolor') && \function_exists('imagecreatefromstring');
+            $canWebp = \function_exists('imagewebp');
+            $preferWebp = (defined('MEDYA_KAYDET_WEBP') ? MEDYA_KAYDET_WEBP : true) && $canGD && $canWebp && $mime !== 'image/gif';
+
+            // Hedef uzantı
+            $ext = $preferWebp ? 'webp' : \App\Services\Image::pickExtension($mime, $origExt);
+
             $uniq     = bin2hex(random_bytes(3));
             $filename = $nameOnly.'-'.date('Ymd-His').'-'.$uniq.'.'.$ext;
 
@@ -187,46 +210,58 @@ class MedyaController extends AdminController
             if (!is_writable($dirFull) || !is_writable($dirThumbs))     throw new \RuntimeException('upload_dir_yazilamaz');
 
             $targetPath = $dirFull . '/' . $filename;
-            $canGD = \extension_loaded('gd') && \function_exists('imagecreatetruecolor') && \function_exists('imagecreatefromstring');
             if (!move_uploaded_file($f['tmp_name'], $targetPath)) {
                 throw new \RuntimeException('dosya_tasinamadi');
             }
 
-            // EXIF strip (JPEG)
+            // EXIF strip (JPEG kaynaklarda işe yarar; WEBP'ye geçmeden önce)
             \App\Services\Image::stripJpegExifIfPossible($targetPath);
 
-            // GIF’lerde animasyon bozulmasın diye yeniden boyutlandırma yapmıyoruz
             $maxDim = 2560;
+            $finalMime = $mime;
+
             if ($canGD && $mime !== 'image/gif') {
                 [$w,$h] = @\getimagesize($targetPath) ?: [0,0];
-                if ($w > $maxDim || $h > $maxDim) {
-                    $ratio = min($maxDim / max(1,$w), $maxDim / max(1,$h));
-                    $nw = max(1, (int)floor($w * $ratio));
-                    $nh = max(1, (int)floor($h * $ratio));
+                // Hedef boyut: büyükse küçült, küçükse aynı kalsın → ama yine de yeniden kaydet/encode et
+                $ratio = ($w && $h) ? min($maxDim / max(1,$w), $maxDim / max(1,$h)) : 1.0;
+                $nw = ($w && $h) ? max(1, (int)floor($w * min(1.0,$ratio))) : 0;
+                $nh = ($w && $h) ? max(1, (int)floor($h * min(1.0,$ratio))) : 0;
 
-                    $src = \imagecreatefromstring(file_get_contents($targetPath));
-                    if ($src) {
-                        $dst = \imagecreatetruecolor($nw, $nh);
-                        imagealphablending($dst, false);
-                        \imagesavealpha($dst, true);
-                        \imagecopyresampled($dst, $src, 0,0,0,0, $nw,$nh, $w,$h);
+                $src = \imagecreatefromstring(@file_get_contents($targetPath));
+                if ($src && $nw && $nh) {
+                    $dst = \imagecreatetruecolor($nw, $nh);
+                    \imagealphablending($dst, false);
+                    \imagesavealpha($dst, true);
+                    \imagecopyresampled($dst, $src, 0,0,0,0, $nw,$nh, $w,$h);
 
+                    if ($preferWebp) {
+                        // Her durumda WEBP'ye encode et
+                        \imagewebp($dst, $targetPath, defined('MEDYA_WEBP_KALITE') ? MEDYA_WEBP_KALITE : 82);
+                        $finalMime = 'image/webp';
+                    } else {
+                        // Eski davranış
                         if ($mime === 'image/jpeg') {
                             \imagejpeg($dst, $targetPath, 82);
                         } elseif ($mime === 'image/png') {
                             \imagepng($dst, $targetPath, 6);
-                        } else { // webp
-                            if (function_exists('imagewebp')) {
-                                \imagewebp($dst, $targetPath, 82);
-                            } else {
-                                // webp desteği yoksa PNG’ye düş
-                                \imagepng($dst, $targetPath, 6);
-                                $ext = 'png';
-                                $filename = preg_replace('~\.[a-z0-9]+$~i', '.png', $filename);
-                            }
+                        } elseif (\function_exists('imagewebp')) {
+                            \imagewebp($dst, $targetPath, 82);
+                            $finalMime = 'image/webp';
+                        } else {
+                            \imagepng($dst, $targetPath, 6);
                         }
-                        \imagedestroy($dst);
-                        \imagedestroy($src);
+                    }
+                    \imagedestroy($dst);
+                    \imagedestroy($src);
+                } else {
+                    // Ölçüler okunamadıysa en azından WEBP re-encode dene
+                    if ($preferWebp) {
+                        $src = \imagecreatefromstring(@file_get_contents($targetPath));
+                        if ($src) {
+                            \imagewebp($src, $targetPath, defined('MEDYA_WEBP_KALITE') ? MEDYA_WEBP_KALITE : 82);
+                            \imagedestroy($src);
+                            $finalMime = 'image/webp';
+                        }
                     }
                 }
             }
@@ -244,17 +279,21 @@ class MedyaController extends AdminController
                     $ratio = min($tSize / $w, $tSize / $h);
                     $tw = max(1, (int)floor($w * $ratio));
                     $th = max(1, (int)floor($h * $ratio));
-                    $src = \imagecreatefromstring(file_get_contents($targetPath));
+                    $src = \imagecreatefromstring(@file_get_contents($targetPath));
                     if ($src) {
                         $dst = \imagecreatetruecolor($tw, $th);
-                        imagealphablending($dst, false);
+                        \imagealphablending($dst, false);
                         \imagesavealpha($dst, true);
                         \imagecopyresampled($dst, $src, 0,0,0,0, $tw,$th, $w,$h);
 
-                        if ($mime === 'image/jpeg')       \imagejpeg($dst, $thumbPath, 82);
-                        elseif ($mime === 'image/png')    \imagepng($dst, $thumbPath, 6);
-                        elseif ($mime === 'image/webp' && function_exists('imagewebp')) \imagewebp($dst, $thumbPath, 82);
-                        else                                \imagepng($dst, $thumbPath, 6);
+                        if ($preferWebp) {
+                            \imagewebp($dst, $thumbPath, defined('MEDYA_WEBP_KALITE') ? MEDYA_WEBP_KALITE : 82);
+                        } else {
+                            if ($mime === 'image/jpeg')       \imagejpeg($dst, $thumbPath, 82);
+                            elseif ($mime === 'image/png')    \imagepng($dst, $thumbPath, 6);
+                            elseif (\function_exists('imagewebp')) \imagewebp($dst, $thumbPath, 82);
+                            else                                \imagepng($dst, $thumbPath, 6);
+                        }
 
                         \imagedestroy($dst);
                         \imagedestroy($src);
@@ -281,7 +320,7 @@ class MedyaController extends AdminController
             $st->execute([
                 ':yol'       => $yol,
                 ':yol_thumb' => $yolThumb,
-                ':mime'      => $mime,
+                ':mime'      => $finalMime, // <<<< BURASI
                 ':boyut'     => $boyut,
                 ':hash'      => $hash,
                 ':w'         => $W,
@@ -289,7 +328,7 @@ class MedyaController extends AdminController
             ]);
 
             // TinyMCE "location" bekliyor
-            echo json_encode(['ok'=>true, 'location'=> $yol, 'thumb' => $yolThumb], JSON_UNESCAPED_UNICODE);
+            echo json_encode(['ok'=>true, 'location'=> $yol, 'thumb' => $yolThumb, 'gd'=>$canGD], JSON_UNESCAPED_UNICODE);
         } catch (\Throwable $e) {
             http_response_code(400);
             echo json_encode(['ok'=>false,'kod'=>'UPLOAD_ERR','mesaj'=>$e->getMessage()], JSON_UNESCAPED_UNICODE);
@@ -311,4 +350,78 @@ class MedyaController extends AdminController
     {
         return $this->json(['ok' => false, 'where' => $tag, 'message' => $msg], $code);
     }
+
+    // POST /admin/medya/thumb-fix — Eksik küçük görselleri üret
+    public function thumbFix(): void
+    {
+        // CSRF
+        if (!\App\Core\Csrf::check()) {
+            if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+            $_SESSION['hata'] = 'Güvenlik doğrulaması başarısız.';
+            header('Location: '.BASE_URL.'/admin/medya'); return;
+        }
+
+        // GD zorunlu
+        $canGD = \extension_loaded('gd') && \function_exists('imagecreatetruecolor') && \function_exists('imagecreatefromstring');
+        if (!$canGD) {
+            if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+            $_SESSION['hata'] = 'GD kapalı olduğu için küçük görseller üretilemedi.';
+            header('Location: '.BASE_URL.'/admin/medya'); return;
+        }
+
+        $pdo  = DB::pdo();
+        $root = dirname(__DIR__, 2) . '/public';
+
+        // Eksik thumb olanlardan mak. 200 kayıt
+        $st = $pdo->query("
+            SELECT id, yol, yol_thumb, mime
+            FROM medya
+            WHERE (yol_thumb IS NULL OR yol_thumb = '')
+              AND mime IN ('image/jpeg','image/png','image/webp')
+            ORDER BY id DESC
+            LIMIT 200
+        ");
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+        $done = 0; $skip = 0;
+        foreach ($rows as $r) {
+            $srcAbs = $root . $r['yol'];
+            if (!is_file($srcAbs)) { $skip++; continue; }
+
+            [$w,$h] = @\getimagesize($srcAbs) ?: [0,0];
+            if (!$w || !$h) { $skip++; continue; }
+
+            $tSize = 320;
+            $ratio = min($tSize / $w, $tSize / $h);
+            $tw = max(1, (int)floor($w * $ratio));
+            $th = max(1, (int)floor($h * $ratio));
+
+            $src = @\imagecreatefromstring(@file_get_contents($srcAbs));
+            if (!$src) { $skip++; continue; }
+
+            $dst = \imagecreatetruecolor($tw, $th);
+            \imagealphablending($dst, false);
+            \imagesavealpha($dst, true);
+            \imagecopyresampled($dst, $src, 0,0,0,0, $tw,$th, $w,$h);
+
+            $thumbRel = preg_replace('~^/uploads/editor/~', '/uploads/editor/thumbs/', $r['yol']);
+            $thumbAbs = $root . $thumbRel;
+            if (!is_dir(dirname($thumbAbs))) @mkdir(dirname($thumbAbs), 0775, true);
+
+            if ($r['mime']==='image/jpeg')      \imagejpeg($dst, $thumbAbs, 82);
+            elseif ($r['mime']==='image/png')   \imagepng($dst, $thumbAbs, 6);
+            else                                \imagewebp($dst, $thumbAbs, 82);
+
+            \imagedestroy($dst); \imagedestroy($src);
+
+            $upd = $pdo->prepare("UPDATE medya SET yol_thumb=:t WHERE id=:id");
+            $upd->execute([':t'=>$thumbRel, ':id'=>$r['id']]);
+            $done++;
+        }
+
+        if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+        $_SESSION['mesaj'] = "{$done} küçük görsel üretildi, {$skip} kayıt atlandı.";
+        header('Location: '.BASE_URL.'/admin/medya');
+    }
+
 }
