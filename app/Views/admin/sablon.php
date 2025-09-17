@@ -11,6 +11,7 @@
   <meta name="csrf-token" content="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
   <!-- Geri uyumluluk: eski JS helper'lar için -->
   <meta name="csrf" content="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+  <meta name="base" content="<?= htmlspecialchars(rtrim(dirname($_SERVER['SCRIPT_NAME']), '/'), ENT_QUOTES) ?>">
 </head>
 <body class="bg-light">
 

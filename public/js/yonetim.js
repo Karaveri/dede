@@ -1,4 +1,6 @@
 // Güvenli BASE kestirici (yoksa oluştur)
+const BASE = document.querySelector('meta[name="base"]')?.content || '';
+const api  = (p) => `${BASE}${p}`;
 if (typeof window.__guessBase !== 'function') {
   window.__guessBase = function () {
     // Örn: /fevzi/public/admin/medya  =>  /fevzi/public
@@ -875,3 +877,189 @@ function showToast(msg = 'İşlem tamam', type = 'success'){
     el.addEventListener('hidden.bs.toast', ()=> el.remove());
   } catch { /* bootstrap yoksa alert'e düşer */ }
 }
+
+
+
+
+(function () {
+  const csrf = document.querySelector('meta[name="csrf"]')?.getAttribute('content') || '';
+  const grid = document.getElementById('medya-grid');
+  const ara  = document.getElementById('medya-ara');
+  const etiketWrap = document.getElementById('etiket-filter');
+
+  let aktifTag = '';
+  let q = '';
+  let sayfa = 1;
+  let isLoading = false;
+
+  function htmlesc(s){return s.replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+
+  async function fetchJSON(url, opt) {
+    const o = Object.assign({ headers: {} }, opt || {});
+    if (o.method && o.method.toUpperCase() !== 'GET') {
+      o.headers['Content-Type'] = 'application/json';
+      if (csrf) o.headers['X-CSRF-Token'] = csrf;
+    }
+    const r = await fetch(url, o);
+    return r.json();
+  }
+
+  function kartHTML(k) {
+    const thumb = k.yol_thumb || k.yol;
+    const etiketler = (k.etiketler||[]).map(e => `<span class="badge text-bg-light border">${htmlesc(e.ad)}</span>`).join(' ');
+    return `
+      <div class="col">
+        <div class="card shadow-sm h-100">
+          <img src="${htmlesc(thumb)}" class="card-img-top" loading="lazy" alt="">
+          <div class="card-body p-2">
+            <div class="small text-muted mb-1">${htmlesc(k.mime)} · ${(k.genislik||'?')}×${(k.yukseklik||'?')}</div>
+            <div class="d-flex flex-wrap gap-1">${etiketler}</div>
+            <div class="d-flex justify-content-end mt-2">
+              <button class="btn btn-sm btn-outline-secondary btn-etiketle" data-mid="${k.id}">Etiketler</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  async function listeYukle(reset = true) {
+    if (isLoading) return;
+    isLoading = true;
+    if (reset) {
+      sayfa = 1;
+      grid.innerHTML = '';
+    }
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (aktifTag) params.set('tag', aktifTag);
+    params.set('sayfa', String(sayfa));
+    params.set('limit', '36');
+
+    const js = await fetchJSON(api(`/admin/api/medya?${params.toString()}`));
+    const kayitlar = js.kayitlar || [];
+    const frag = document.createDocumentFragment();
+    const tmp = document.createElement('div');
+    tmp.innerHTML = kayitlar.map(kartHTML).join('');
+    while (tmp.firstChild) frag.appendChild(tmp.firstChild);
+    grid.appendChild(frag);
+    isLoading = false;
+  }
+
+  async function etiketBulutu() {
+    const js = await fetchJSON(api('/admin/api/medya/etiketler'));
+    const el = etiketWrap;
+    el.innerHTML = '';
+    const hepsi = document.createElement('button');
+    hepsi.className = `btn btn-sm ${aktifTag ? 'btn-outline-secondary':'btn-secondary'}`;
+    hepsi.textContent = 'Tümü';
+    hepsi.onclick = () => { aktifTag = ''; listeYukle(true); etiketBulutu(); };
+    el.appendChild(hepsi);
+
+    (js.etiketler||[]).forEach(e => {
+      const b = document.createElement('button');
+      b.className = 'btn btn-sm ' + (aktifTag === e.slug ? 'btn-secondary' : 'btn-outline-secondary');
+      b.textContent = `${e.ad} (${e.adet})`;
+      b.onclick = () => { aktifTag = (aktifTag === e.slug ? '' : e.slug); listeYukle(true); etiketBulutu(); };
+      el.appendChild(b);
+    });
+  }
+
+  // Arama debounce
+  let t;
+  ara?.addEventListener('input', () => {
+    q = ara.value.trim();
+    clearTimeout(t);
+    t = setTimeout(() => listeYukle(true), 250);
+  });
+
+  // Kart üzerindeki "Etiketler" butonu
+  grid.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('.btn-etiketle');
+    if (!btn) return;
+    const mid = btn.getAttribute('data-mid');
+    const mevcut = Array.from(btn.closest('.card').querySelectorAll('.badge'))
+                        .map(b => b.textContent.replace(/\s+\(\d+\)$/, '').trim());
+    const giris = prompt('Etiketleri virgülle yaz (ör: ürün, kapak, web):', mevcut.join(', '));
+    if (giris === null) return;
+    const gonder = { medya_id: Number(mid), etiketler: giris };
+    const js = await fetchJSON(api('/admin/api/medya/etiketle'), { method:'POST', body: JSON.stringify(gonder) });
+    if (js && js.ok) {
+      // Yeniden çiz
+      listeYukle(true);
+      etiketBulutu();
+    } else {
+      alert('Kaydedilemedi: ' + (js?.hata || 'BELİRSİZ'));
+    }
+  });
+
+const bulkTagBtn     = document.getElementById('bulkTagBtn');
+// Eski listener’ları temizle (butonu klonla)
+if (bulkTagBtn) {
+  const clone = bulkTagBtn.cloneNode(true);
+  bulkTagBtn.parentNode.replaceChild(clone, bulkTagBtn);
+  // ve clone üstüne yukarıdaki click handler'ı bağla:
+  clone.addEventListener('click', () => {
+    const ids = Array.from(document.querySelectorAll('.chk:checked')).map(ch => +ch.value);
+    if (!ids.length) { showToast('Seçili görsel yok.', 'warning'); return; }
+    document.getElementById('bulkTagsInput').value = '';
+    bulkTagModal?.show();
+    setTimeout(() => document.getElementById('bulkTagsInput')?.focus(), 150);
+  });
+}
+const bulkTagModalEl = document.getElementById('bulkTagModal');
+const bulkTagModal   = bulkTagModalEl ? new bootstrap.Modal(bulkTagModalEl) : null;
+
+bulkTagBtn?.addEventListener('click', () => {
+  const ids = Array.from(document.querySelectorAll('.chk:checked')).map(ch => +ch.value);
+  if (!ids.length) { showToast('Seçili görsel yok.', 'warning'); return; }
+  document.getElementById('bulkTagsInput').value = '';
+  bulkTagModal?.show();
+  setTimeout(() => document.getElementById('bulkTagsInput')?.focus(), 150);
+});
+
+document.getElementById('bulkTagForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const ids  = Array.from(document.querySelectorAll('.chk:checked')).map(ch => +ch.value);
+  const tags = document.getElementById('bulkTagsInput').value || '';
+  if (!ids.length) { showToast('Seçili görsel yok.', 'warning'); return; }
+
+  const BASE = '<?= $BASE ?>';
+  const csrf = document.querySelector('#medyaForm input[name="csrf"]')?.value
+            || document.querySelector('meta[name="csrf"]')?.content || '';
+
+  // UI kilitle
+  const saveBtn = document.getElementById('bulkTagSaveBtn');
+  saveBtn.disabled = true;
+
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    const resp = await fetch(`${BASE}/admin/api/medya/etiketle`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(csrf ? { 'X-CSRF-Token': csrf, 'X-CSRF': csrf } : {})
+      },
+      body: JSON.stringify({ medya_id: id, etiketler: tags })
+    });
+    const txt = await resp.text();
+    let js; try { js = JSON.parse(txt); } catch {}
+    if (resp.ok && js?.ok) ok++; else fail++;
+  }
+
+  saveBtn.disabled = false;
+  bulkTagModal?.hide();
+  showToast(`Etiket atama • Tamam: ${ok} • Hata: ${fail}`, fail ? 'warning' : 'success');
+});
+
+
+  // İlk yük
+  etiketBulutu();
+  listeYukle(true);
+
+  // Basit sonsuz kaydırma (performans maddesine zemin)
+  window.addEventListener('scroll', () => {
+    if ((window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 400)) {
+      if (!isLoading) { sayfa++; listeYukle(false); }
+    }
+  });
+})();

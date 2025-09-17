@@ -24,6 +24,9 @@ $BASE = rtrim(BASE_URL, '/');
 <?php if ($mesaj): ?><div class="alert alert-success py-2"><?= htmlspecialchars($mesaj) ?></div><?php endif; ?>
 <?php if ($hata):  ?><div class="alert alert-danger  py-2"><?= htmlspecialchars($hata)  ?></div><?php endif; ?>
 
+<!-- Var olan grid -->
+<div id="medya-grid" class="d-none"></div>
+
 <form method="get" action="<?= BASE_URL ?>/admin/medya" class="row g-2 mb-3">
   <div class="col-auto">
     <input type="text" name="q" value="<?= htmlspecialchars($q) ?>" class="form-control form-control-sm" placeholder="Ara (yol, mime)">
@@ -58,8 +61,10 @@ $BASE = rtrim(BASE_URL, '/');
       <input class="form-check-input" type="checkbox" id="secTum">
       <label class="form-check-label" for="secTum">Tümünü seç</label>
     </div>
-    <!-- Toplu silme artık modal açar -->
+    <!-- TOPLU SİL (geri geldi) -->
     <button type="button" class="btn btn-sm btn-danger" id="bulkDeleteBtn">Seçili olanları sil</button>
+    <!-- TOPLU ETİKET -->
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkTagBtn">Seçililere etiket ata</button>
     <span class="text-muted small">Silmek görünümü bozar; görsel sayfalarda kullanılıyorsa orada da kırık olur.</span>
   </div>
 
@@ -70,11 +75,18 @@ $BASE = rtrim(BASE_URL, '/');
       <?php foreach ($medyalar as $m): ?>
         <div class="col">
           <div class="card h-100">
-            <!-- Küçük görsele tıklayınca modal önizleme -->
-          <?php $thumb = !empty($m['yol_thumb'] ?? null) ? $m['yol_thumb'] : $m['yol']; ?>
-            <a href="#" class="ratio ratio-1x1 media-thumb" data-src="<?= $BASE . $m['yol'] ?>">
-              <img loading="lazy" decoding="async" src="<?= $BASE . $thumb ?>" alt="" class="card-img-top" style="object-fit:cover;">
+            <?php
+            // DİKKAT: satır ; ile bitiyor ve PHP bloğu kapanıyor
+            $thumb = !empty($m['yol_thumb'] ?? null) ? $m['yol_thumb'] : $m['yol'];
+            ?>
+            <a href="#" class="ratio ratio-1x1 media-thumb"
+               data-src="<?= $BASE . $m['yol'] ?>"
+               data-mid="<?= (int)$m['id'] ?>">
+              <img loading="lazy" decoding="async"
+                   src="<?= $BASE . $thumb ?>" alt=""
+                   class="card-img-top" style="object-fit:cover;">
             </a>
+
             <div class="card-body p-2">
               <div class="small text-truncate" title="<?= htmlspecialchars($m['yol']) ?>">
                 <?= htmlspecialchars(basename($m['yol'])) ?>
@@ -86,11 +98,11 @@ $BASE = rtrim(BASE_URL, '/');
                 <?php endif; ?>
               </div>
             </div>
+
             <div class="card-footer d-flex justify-content-between align-items-center p-2">
               <div class="form-check m-0">
                 <input class="form-check-input chk" type="checkbox" name="ids[]" value="<?= (int)$m['id'] ?>">
               </div>
-              <!-- Tekil silme: modal ile onay -->
               <button type="button"
                       class="btn btn-sm btn-outline-danger btn-sil-tek"
                       data-id="<?= (int)$m['id'] ?>"
@@ -127,9 +139,46 @@ $BASE = rtrim(BASE_URL, '/');
         <h5 class="modal-title">Önizleme</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
       </div>
+
       <div class="modal-body">
-        <img id="mediaModalImg" src="" alt="" class="imgCenter">
+        <img id="mediaModalImg" src="" alt="" class="imgCenter mb-3">
+
+        <!-- Etiket rozetleri -->
+        <div id="mediaTagsBadges" class="d-flex flex-wrap gap-1 mb-2"></div>
+
+        <!-- Etiket düzenleme -->
+        <div class="input-group input-group-sm mb-2">
+          <input type="text" id="mediaTags" class="form-control" placeholder="Etiketleri virgülle yaz (örn: kapak, ürün)">
+          <button type="button" class="btn btn-outline-secondary" id="saveTagsBtn">Kaydet</button>
+        </div>
+        <div class="mt-1">
+          <div class="btn-group btn-group-sm" role="group" aria-label="Etiket modu">
+            <input type="radio" class="btn-check" name="tagMode" id="tagModeReplace" value="replace" checked>
+            <label class="btn btn-outline-secondary" for="tagModeReplace">Eşitle</label>
+            <input type="radio" class="btn-check" name="tagMode" id="tagModeAppend" value="append">
+            <label class="btn btn-outline-secondary" for="tagModeAppend">Ekle</label>
+          </div>
+        </div>
+
+        <hr class="my-3">
+
+        <!-- Meta alanları -->
+        <div class="row g-2 align-items-center mb-2">
+          <div class="col-12 col-sm-6">
+            <label for="mediaAlt" class="form-label form-label-sm mb-1">Alt metin</label>
+            <input type="text" id="mediaAlt" class="form-control form-control-sm" maxlength="255" placeholder="Örn: Gün batımı manzarası">
+          </div>
+          <div class="col-12 col-sm-6">
+            <label for="mediaTitle" class="form-label form-label-sm mb-1">Başlık (title)</label>
+            <input type="text" id="mediaTitle" class="form-control form-control-sm" maxlength="150" placeholder="Örn: Kapak görseli">
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="saveMetaBtn">Meta Kaydet</button>
+
+        <!-- aktif medya id’si -->
+        <input type="hidden" id="mediaMid" value="">
       </div>
+
       <div class="modal-footer gap-2">
         <input type="text" id="mediaUrl" class="form-control form-control-sm" readonly>
         <button type="button" class="btn btn-sm btn-outline-secondary" id="copyBtn">Bağlantıyı kopyala</button>
@@ -158,6 +207,32 @@ $BASE = rtrim(BASE_URL, '/');
   </div>
 </div>
 
+<!-- TOPLU ETİKET MODALI -->
+<div class="modal fade" id="bulkTagModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form class="modal-content" id="bulkTagForm">
+      <div class="modal-header">
+        <h5 class="modal-title">Seçililere etiket ata</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="small text-muted mb-2">
+          Seçili görsellerin mevcut etiketlerine <b>ekler</b> (silmez).
+          (Örn: <code>kapak, ürün</code>)
+        </div>
+        <input type="text" id="bulkTagsInput" class="form-control" placeholder="Etiketleri virgülle yaz">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Vazgeç</button>
+        <button type="submit" class="btn btn-primary" id="bulkTagSaveBtn">Kaydet</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- TOASTS -->
+<div id="toastWrap" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1080;"></div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   if (typeof __bindMedyaUpload === 'function') __bindMedyaUpload();
@@ -169,17 +244,117 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // Önizleme modalı
+  // ÖNİZLEME MODALI (etiket yüklemeli)
   document.querySelectorAll('.media-thumb').forEach(a => {
-    a.addEventListener('click', (e) => {
+    a.addEventListener('click', async (e) => {
       e.preventDefault();
       const src = a.dataset.src;
+      const mid = a.dataset.mid || '';
+
       document.getElementById('mediaModalImg').src = src;
       document.getElementById('mediaUrl').value  = src;
       document.getElementById('openNewTab').href = src;
+      document.getElementById('mediaMid').value  = mid;
+
+      if (mid) {
+        await loadTags(mid); // aşağıda tanımlıyoruz
+      } else {
+        renderBadges([]);
+        document.getElementById('mediaTags').value = '';
+      }
+      // meta bilgileri de getir
+      await loadMeta(mid);
       const m = bootstrap.Modal.getOrCreateInstance(document.getElementById('mediaModal'));
       m.show();
     });
+  });
+
+  // BASE ve CSRF (formdan ya da meta'dan)
+  const BASE = '<?= $BASE ?>';
+  const csrf = document.querySelector('#medyaForm input[name="csrf"]')?.value
+            || document.querySelector('meta[name="csrf"]')?.content
+            || '';
+
+  // Etiket rozetlerini çizen küçük yardımcı
+  function renderBadges(list) {
+    const wrap = document.getElementById('mediaTagsBadges');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    (list || []).forEach(e => {
+      const s = document.createElement('span');
+      s.className = 'badge text-bg-light border me-1 mb-1';
+      s.textContent = e.ad || e.slug;
+      wrap.appendChild(s);
+    });
+  }
+
+  // Basit toast bildirimi
+  function showToast(msg, variant = 'success') {
+    const wrap = document.getElementById('toastWrap');
+    if (!wrap) return alert(msg);
+
+    const el = document.createElement('div');
+    el.className = 'toast align-items-center text-bg-' +
+      (variant === 'danger' ? 'danger' :
+       variant === 'warning' ? 'warning' :
+       variant === 'info' ? 'info' : 'success');
+    el.role = 'alert';
+    el.ariaLive = 'assertive';
+    el.ariaAtomic = 'true';
+    el.innerHTML = `
+      <div class="d-flex">
+        <div class="toast-body">${msg}</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+      </div>`;
+    wrap.appendChild(el);
+    const t = new bootstrap.Toast(el, { delay: 2500 });
+    t.show();
+    el.addEventListener('hidden.bs.toast', () => el.remove());
+  }
+
+  // Güvenli JSON fetch (HTML dönerse de yakalar)
+  async function fetchJSON(url, opt) {
+    const r = await fetch(url, opt);
+    const txt = await r.text();
+    try { return { ok:r.ok, status:r.status, json: JSON.parse(txt) }; }
+    catch { return { ok:r.ok, status:r.status, text: txt }; }
+  }
+
+  // Belirli bir medya için etiketleri yükle
+  async function loadTags(mid) {
+    const resp = await fetchJSON(`${BASE}/admin/api/medya/etiketler?mid=${encodeURIComponent(mid)}`);
+    if (resp.ok && resp.json?.ok) {
+      const tags = resp.json.etiketler || [];
+      document.getElementById('mediaTags').value = tags.map(t => t.ad || t.slug).join(', ');
+      renderBadges(tags);
+    } else {
+      document.getElementById('mediaTags').value = '';
+      renderBadges([]);
+    }
+  }
+
+  // Modal içindeki "Kaydet" butonu: etiketleri eşitle
+  document.getElementById('saveTagsBtn')?.addEventListener('click', async () => {
+    const mid  = parseInt(document.getElementById('mediaMid').value || '0', 10);
+    const tags = document.getElementById('mediaTags').value || '';
+    const mode = document.querySelector('input[name="tagMode"]:checked')?.value || 'replace';
+    if (!mid) return;
+
+    const resp = await fetchJSON(`${BASE}/admin/api/medya/etiketle`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(csrf ? { 'X-CSRF-Token': csrf, 'X-CSRF': csrf } : {})
+      },
+      body: JSON.stringify({ medya_id: mid, etiketler: tags, mod: mode })
+    });
+
+    if (resp.ok && resp.json?.ok) {
+      renderBadges(resp.json.etiketler || []);
+      showToast(`Etiketler ${mode === 'append' ? 'eklendi' : 'eşitlendi'}.`, 'success');
+    } else {
+      showToast('Kaydedilemedi: ' + (resp.json?.hata || `HTTP ${resp.status}`), 'danger');
+    }
   });
 
   // Kopyala
@@ -212,6 +387,92 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   });
 
+  // TOPLU ETİKET: butona basınca modal aç
+  const bulkTagBtn = document.getElementById('bulkTagBtn');
+  const bulkTagModalEl = document.getElementById('bulkTagModal');
+  const bulkTagModal = bulkTagModalEl ? new bootstrap.Modal(bulkTagModalEl) : null;
+
+  bulkTagBtn?.addEventListener('click', () => {
+    const ids = Array.from(document.querySelectorAll('.chk:checked')).map(ch => +ch.value);
+    if (!ids.length) {
+      showToast('Seçili görsel yok.', 'warning');
+      return;
+    }
+    document.getElementById('bulkTagsInput').value = '';
+    bulkTagModal?.show();
+    setTimeout(() => document.getElementById('bulkTagsInput')?.focus(), 200);
+  });
+
+  // TOPLU ETİKET: modal form submit
+  document.getElementById('bulkTagForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const ids = Array.from(document.querySelectorAll('.chk:checked')).map(ch => +ch.value);
+    const tags = document.getElementById('bulkTagsInput').value || '';
+    if (!ids.length) {
+      showToast('Seçili görsel yok.', 'warning');
+      return;
+    }
+
+    // UI kilitle
+    const saveBtn = document.getElementById('bulkTagSaveBtn');
+    saveBtn.disabled = true;
+
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      const resp = await fetchJSON(`${BASE}/admin/api/medya/etiketle`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(csrf ? { 'X-CSRF-Token': csrf, 'X-CSRF': csrf } : {})
+        },
+        body: JSON.stringify({ medya_id: id, etiketler: tags, mod: 'append' })
+      });
+      if (resp.ok && resp.json?.ok) ok++; else fail++;
+    }
+
+    saveBtn.disabled = false;
+    bulkTagModal?.hide();
+    showToast(`Etiket atama • Tamam: ${ok} • Hata: ${fail}`, fail ? 'warning' : 'success');
+  });
+
+
+
+  async function loadMeta(mid) {
+    const resp = await fetchJSON(`${BASE}/admin/api/medya/meta?mid=${encodeURIComponent(mid)}`);
+    if (resp.ok && resp.json?.ok) {
+      const m = resp.json.medya || {};
+      document.getElementById('mediaAlt').value   = m.alt_text ?? '';
+      document.getElementById('mediaTitle').value = m.title    ?? '';
+    } else {
+      document.getElementById('mediaAlt').value   = '';
+      document.getElementById('mediaTitle').value = '';
+    }
+  }
+
+  document.getElementById('saveMetaBtn')?.addEventListener('click', async () => {
+    const mid = parseInt(document.getElementById('mediaMid').value || '0', 10);
+    const alt = document.getElementById('mediaAlt').value || '';
+    const tit = document.getElementById('mediaTitle').value || '';
+    if (!mid) return;
+
+    const resp = await fetchJSON(`${BASE}/admin/api/medya/meta`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(csrf ? { 'X-CSRF-Token': csrf, 'X-CSRF': csrf } : {})
+      },
+      body: JSON.stringify({ medya_id: mid, alt_text: alt, title: tit })
+    });
+
+    if (resp.ok && resp.json?.ok) {
+      showToast('Meta bilgileri kaydedildi.', 'success');
+    } else {
+      showToast('Meta kaydedilemedi: ' + (resp.json?.hata || `HTTP ${resp.status}`), 'danger');
+    }
+  });
+
+
+
   // Toplu silme
   document.getElementById('bulkDeleteBtn')?.addEventListener('click', () => {
     const checked = Array.from(document.querySelectorAll('.chk')).filter(ch => ch.checked);
@@ -242,4 +503,5 @@ document.addEventListener('DOMContentLoaded', function () {
     medyaForm.submit();
   });
 });
+
 </script>

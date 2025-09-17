@@ -1,9 +1,8 @@
 <?php declare(strict_types=1);
-use PDO;
 
 return [
   'id' => '20250904_001_medya_thumb_ve_indeksler',
-  'up' => function(PDO $pdo): void {
+  'up' => function(\PDO $pdo): void {
       $hasCol = function(string $col) use ($pdo): bool {
           $q = $pdo->prepare("SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME='medya' AND COLUMN_NAME=?");
           $q->execute([$col]);
@@ -25,7 +24,7 @@ return [
       if (!$hasIdx('ux_medya_hash'))        $pdo->exec("ALTER TABLE medya ADD UNIQUE KEY ux_medya_hash (hash)");
       if (!$hasIdx('ix_medya_created_at'))  $pdo->exec("ALTER TABLE medya ADD INDEX ix_medya_created_at (created_at)");
   },
-  'down' => function(PDO $pdo): void {
+  'down' => function(\PDO $pdo): void {
       $pdo->exec("ALTER TABLE medya DROP INDEX ux_medya_yol");
       $pdo->exec("ALTER TABLE medya DROP INDEX ux_medya_hash");
       $pdo->exec("ALTER TABLE medya DROP INDEX ix_medya_created_at");

@@ -86,3 +86,4 @@ defined('MEDYA_IZINLI_MIMES') || define('MEDYA_IZINLI_MIMES', [
 // WEBP'ye dönüştür (true/false) ve kalite (0-100)
 if (!defined('MEDYA_KAYDET_WEBP')) define('MEDYA_KAYDET_WEBP', true);
 if (!defined('MEDYA_WEBP_KALITE')) define('MEDYA_WEBP_KALITE', 82);
+if (!defined('ETIKET_AD_MAXLEN')) define('ETIKET_AD_MAXLEN', 100);

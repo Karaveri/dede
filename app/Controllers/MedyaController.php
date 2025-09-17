@@ -28,9 +28,11 @@ class MedyaController extends AdminController
         // Arama filtresi
         $where  = '';
         $params = [];
+        
         if ($q !== '') {
-            $where = 'WHERE yol LIKE :q OR mime LIKE :q';
-            $params[':q'] = '%'.$q.'%';
+            $where = 'WHERE yol LIKE :q1 OR mime LIKE :q2';
+            $params[':q1'] = '%'.$q.'%';
+            $params[':q2'] = '%'.$q.'%';
         }
 
         // Sayı
@@ -43,12 +45,9 @@ class MedyaController extends AdminController
         $sql = "SELECT id, yol, yol_thumb, mime, genislik, yukseklik
                 FROM medya $where
                 ORDER BY id DESC
-                LIMIT :l OFFSET :o";
+                LIMIT {$limit} OFFSET {$ofset}";
         $st  = DB::pdo()->prepare($sql);
-        foreach ($params as $k => $v) $st->bindValue($k, $v, PDO::PARAM_STR);
-        $st->bindValue(':l', $limit, PDO::PARAM_INT);
-        $st->bindValue(':o', $ofset, PDO::PARAM_INT);
-        $st->execute();
+        $st->execute($params);
         $medyalar = $st->fetchAll(PDO::FETCH_ASSOC);
 
         // >>> Layout otomatik (admin/sablon.php)
@@ -422,6 +421,255 @@ class MedyaController extends AdminController
         if (session_status() !== PHP_SESSION_ACTIVE) session_start();
         $_SESSION['mesaj'] = "{$done} küçük görsel üretildi, {$skip} kayıt atlandı.";
         header('Location: '.BASE_URL.'/admin/medya');
+    }
+
+    // === API: liste/arama
+    public function apiListe() /* no : void */ 
+    {
+        $pdo = \App\Core\DB::pdo();
+        $q    = trim($_GET['q']   ?? '');
+        $tag  = trim($_GET['tag'] ?? '');
+        $sayfa = max(1, (int)($_GET['sayfa'] ?? 1));
+        $limit = min(100, max(12, (int)($_GET['limit'] ?? 36)));
+        $ofset = ($sayfa - 1) * $limit;
+
+        $join  = '';
+        $where = [];
+        $param = [];
+
+        if ($q !== '') {
+            $where[] = '(m.yol LIKE :q1 OR m.mime LIKE :q2)';
+            $param[':q1'] = "%{$q}%";
+            $param[':q2'] = "%{$q}%";
+        }
+        if ($tag !== '') {
+            $join .= ' INNER JOIN medya_etiket me ON me.medya_id = m.id
+                       INNER JOIN etiketler e ON e.id = me.etiket_id AND e.slug = :tag';
+            $param[':tag'] = $tag;
+        }
+
+        $wsql = $where ? (' WHERE ' . implode(' AND ', $where)) : '';
+        $sql  = "SELECT m.id, m.yol, m.yol_thumb, m.mime, m.boyut, m.genislik, m.yukseklik, m.created_at
+                 FROM medya m
+                 {$join}
+                 {$wsql}
+                 ORDER BY m.created_at DESC " . "LIMIT {$limit} OFFSET {$ofset}";
+        $stmt = $pdo->prepare($sql);
+        foreach ($param as $k => $v) $stmt->bindValue($k, $v);
+        $stmt->execute();
+        $kayitlar = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        $etiketStmt = $pdo->prepare("
+            SELECT e.slug, e.ad
+            FROM medya_etiket me
+            JOIN etiketler e ON e.id = me.etiket_id
+            WHERE me.medya_id = :mid
+            ORDER BY e.ad ASC
+        ");
+        foreach ($kayitlar as &$k) {
+            $etiketStmt->execute([':mid' => $k['id']]);
+            $k['etiketler'] = $etiketStmt->fetchAll(\PDO::FETCH_ASSOC);
+        }
+
+        return $this->jsonOk(['kayitlar' => $kayitlar, 'sayfa' => $sayfa]);
+    }
+
+    // === API: etiket bulutu
+    public function apiEtiketler()
+    {
+        $mid = (int)($_GET['mid'] ?? 0);
+        if ($mid > 0) {
+            $st = \App\Core\DB::pdo()->prepare("
+                SELECT e.slug, e.ad
+                FROM medya_etiket me
+                JOIN etiketler e ON e.id = me.etiket_id
+                WHERE me.medya_id = :mid
+                ORDER BY e.ad ASC
+            ");
+            $st->execute([':mid' => $mid]);
+            return $this->jsonOk(['mid' => $mid, 'etiketler' => $st->fetchAll(\PDO::FETCH_ASSOC)]);
+        }        
+        $q = trim($_GET['q'] ?? '');
+
+        $w = '';
+        $p = [];
+        if ($q !== '') {
+            $w = 'WHERE (e.ad LIKE :q OR e.slug LIKE :q)';
+            $p[':q'] = "%{$q}%";
+        }
+
+        $sql = "
+            SELECT e.slug, e.ad, COUNT(me.medya_id) AS adet
+            FROM etiketler e
+            LEFT JOIN medya_etiket me ON me.etiket_id = e.id
+            {$w}
+            GROUP BY e.id, e.slug, e.ad
+            ORDER BY adet DESC, e.ad ASC
+            LIMIT 100
+        ";
+        $st = $pdo->prepare($sql);
+        $st->execute($p);
+        return $this->jsonOk(['etiketler' => $st->fetchAll(\PDO::FETCH_ASSOC)]);
+    }
+
+    // === API: etiket eşitle
+    public function apiEtiketle()
+    {
+        $g = json_decode(file_get_contents('php://input'), true) ?: [];
+        $mid = (int)($g['medya_id'] ?? 0);
+        $girilen = $g['etiketler'] ?? [];
+        $mod = strtolower((string)($g['mod'] ?? 'replace')); // 'replace' | 'append'
+
+        if (!$mid || (!is_array($girilen) && !is_string($girilen))) {
+            return $this->jsonErr('GEÇERSİZ_VERİ');
+        }
+        if (is_string($girilen)) {
+            $girilen = array_filter(array_map('trim', explode(',', $girilen)));
+        }
+
+        $etiketler = [];
+        foreach ($girilen as $ad) {
+            if ($ad === '' || mb_strlen($ad) > 100) continue;
+            $slug = $this->slugEtiket($ad);
+            if ($slug === '') continue;
+            $etiketler[$slug] = $ad;
+        }
+
+        $pdo = \App\Core\DB::pdo();
+        $pdo->beginTransaction();
+        try {
+            $chk = $pdo->prepare("SELECT id FROM medya WHERE id = :id");
+            $chk->execute([':id' => $mid]);
+            if (!$chk->fetch()) throw new \RuntimeException('MEDYA_YOK');
+
+            $getId = $pdo->prepare("SELECT id FROM etiketler WHERE slug = :slug");
+            $ins   = $pdo->prepare("INSERT INTO etiketler (slug, ad) VALUES (:slug, :ad)");
+
+            $yeniIds = [];
+            foreach ($etiketler as $slug => $ad) {
+                $getId->execute([':slug' => $slug]);
+                $id = $getId->fetchColumn();
+                if (!$id) {
+                    $ins->execute([':slug' => $slug, ':ad' => $ad]);
+                    $id = (int)$pdo->lastInsertId();
+                }
+                $yeniIds[] = (int)$id;
+            }
+
+            $mevcut = $pdo->prepare("SELECT etiket_id FROM medya_etiket WHERE medya_id = :mid");
+            $mevcut->execute([':mid' => $mid]);
+            $mevcutIds = array_map('intval', array_column($mevcut->fetchAll(\PDO::FETCH_ASSOC), 'etiket_id'));
+
+            // Silinecekler (sadece replace modunda)
+            if ($mod !== 'append') {
+                $silinecek = array_diff($mevcutIds, $yeniIds);
+                if (!empty($silinecek)) {
+                    $in = implode(',', array_fill(0, count($silinecek), '?'));
+                    $del = $pdo->prepare("DELETE FROM medya_etiket WHERE medya_id = ? AND etiket_id IN ($in)");
+                    $del->execute(array_merge([$mid], array_values($silinecek)));
+                }
+            }
+            
+            $eklenecek = array_diff($yeniIds, $mevcutIds);
+            if ($eklenecek) {
+                $insMe = $pdo->prepare("INSERT IGNORE INTO medya_etiket (medya_id, etiket_id) VALUES (:mid, :eid)");
+                foreach ($eklenecek as $eid) {
+                    $insMe->execute([':mid' => $mid, ':eid' => $eid]);
+                }
+            }
+
+            $pdo->commit();
+
+            $etiketSt = $pdo->prepare("
+                SELECT e.slug, e.ad
+                FROM medya_etiket me
+                JOIN etiketler e ON e.id = me.etiket_id
+                WHERE me.medya_id = :mid
+                ORDER BY e.ad ASC
+            ");
+            $etiketSt->execute([':mid' => $mid]);
+
+            return $this->jsonOk([
+                'medya_id'  => $mid,
+                'etiketler' => $etiketSt->fetchAll(\PDO::FETCH_ASSOC),
+            ]);
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            return $this->jsonErr($e->getMessage());
+        }
+    }
+
+    public function apiMetaGet()
+    {
+        $mid = (int)($_GET['mid'] ?? 0);
+        if ($mid <= 0) return $this->jsonErr('GEÇERSİZ_ID');
+
+        $pdo = \App\Core\DB::pdo();
+        $st  = $pdo->prepare("SELECT id, alt_text, `title` FROM medya WHERE id = :id");
+        $st->execute([':id' => $mid]);
+        $row = $st->fetch(\PDO::FETCH_ASSOC);
+        if (!$row) return $this->jsonErr('MEDYA_YOK');
+
+        return $this->jsonOk(['medya' => $row]);
+    }
+
+    public function apiMetaGuncelle()
+    {
+        try {
+            $g = json_decode(file_get_contents('php://input'), true) ?: [];
+            $mid  = (int)($g['medya_id'] ?? 0);
+            $alt  = trim((string)($g['alt_text'] ?? ''));
+            $tit  = trim((string)($g['title'] ?? ''));
+
+            if ($mid <= 0) return $this->jsonErr('GEÇERSİZ_ID');
+            if (mb_strlen($alt) > 255)  return $this->jsonErr('ALT_TEXT_UZUN');
+            if (mb_strlen($tit) > 150)  return $this->jsonErr('TITLE_UZUN');
+
+            $pdo = \App\Core\DB::pdo(); // <<< DİKKAT: \App\Core\DB (iki ::)
+            $st  = $pdo->prepare("UPDATE medya SET alt_text = :alt, `title` = :tit WHERE id = :id");
+            $st->execute([
+                ':alt' => ($alt === '' ? null : $alt),
+                ':tit' => ($tit === '' ? null : $tit),
+                ':id'  => $mid
+            ]);
+
+            return $this->jsonOk(['medya_id' => $mid, 'alt_text' => $alt, 'title' => $tit]);
+        } catch (\Throwable $e) {
+            return $this->jsonErr('META_KAYIT_HATASI: ' . $e->getMessage());
+        }
+    }
+
+    /** Basit slug üretici — projedeki helper varsa onu kullan */
+    private function slugEtiket(string $ad): string
+    {
+        // Eğer global slugify() mevcutsa onu kullan
+        if (function_exists('slugify')) {
+            return slugify($ad);
+        }
+        // Fallback (TR karakter haritası basit)
+        $tr = ['ç','ğ','ı','ö','ş','ü','Ç','Ğ','İ','Ö','Ş','Ü'];
+        $en = ['c','g','i','o','s','u','C','G','I','O','S','U'];
+        $s = str_replace($tr, $en, $ad);
+        $s = mb_strtolower($s, 'UTF-8');
+        $s = preg_replace('~[^a-z0-9]+~u', '-', $s);
+        $s = trim($s, '-');
+        return substr($s, 0, 64);
+    }
+
+    private function medyaByTag(string $slug, int $limit = 1): array {
+        $pdo = \App\Core\DB::pdo();
+        $sql = "SELECT m.* 
+                FROM medya m
+                JOIN medya_etiket me ON me.medya_id = m.id
+                JOIN etiketler e ON e.id = me.etiket_id
+                WHERE e.slug = :slug
+                ORDER BY m.created_at DESC
+                LIMIT :lim";
+        $st = $pdo->prepare($sql);
+        $st->bindValue(':slug', $slug);
+        $st->bindValue(':lim', $limit, \PDO::PARAM_INT);
+        $st->execute();
+        return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     }
 
 }

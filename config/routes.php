@@ -63,11 +63,18 @@ Router::get('/admin/kategoriler/duzenle',   	   [KategorilerDenetleyici::class, 
 Router::post('/admin/kategoriler/geri-al-toplu',   [KategorilerDenetleyici::class, 'copGeriAl'], ['auth','csrf','rate:60,60']); // alias
 
 // ---- Medya
-Router::get ('/admin/medya',            [MedyaController::class, 'index'],     ['auth']);
-Router::post('/admin/medya/sil',        [MedyaController::class, 'sil'],       ['auth','csrf','rate:120,60']);     // sık ama hafif
-Router::post('/admin/medya/toplu-sil',  [MedyaController::class, 'topluSil'],  ['auth','csrf','rate:120,60']);
-Router::post('/admin/medya/yukle',      [MedyaController::class, 'upload'],    ['auth','csrf','rate:30,60']);      // upload daha sıkı
-Router::post('/admin/medya/thumb-fix', [MedyaController::class, 'thumbFix'], ['auth','csrf','rate:30,300']);
+Router::get ('/admin/medya',                       [MedyaController::class, 'index'],     ['auth']);
+Router::post('/admin/medya/sil',                   [MedyaController::class, 'sil'],       ['auth','csrf','rate:120,60']);     // sık ama hafif
+Router::post('/admin/medya/toplu-sil',             [MedyaController::class, 'topluSil'],  ['auth','csrf','rate:120,60']);
+Router::post('/admin/medya/yukle',                 [MedyaController::class, 'upload'],    ['auth','csrf','rate:30,60']);      // upload daha sıkı
+Router::post('/admin/medya/thumb-fix',             [MedyaController::class, 'thumbFix'], ['auth','csrf','rate:30,300']);
+// API (JSON)
+Router::get ('/admin/api/medya',                   [MedyaController::class, 'apiListe'],     ['auth']);
+Router::get ('/admin/api/medya/etiketler',         [MedyaController::class, 'apiEtiketler'], ['auth']);
+Router::post('/admin/api/medya/etiketle',          [MedyaController::class, 'apiEtiketle'],  ['auth','csrf','rate:120,60']);
+Router::get ('/admin/api/medya/meta',              [MedyaController::class, 'apiMetaGet'],      ['auth']);
+Router::post('/admin/api/medya/meta',              [MedyaController::class, 'apiMetaGuncelle'], ['auth','csrf','rate:120,60']);
+
 
 // Yönlendirmeler (admin)
 Router::get('/admin/yonlendirmeler',            [App\Controllers\YonlendirmelerDenetleyici::class, 'index'],    ['auth']);
