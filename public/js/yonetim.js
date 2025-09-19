@@ -547,11 +547,14 @@ document.addEventListener('DOMContentLoaded', refreshCopBadge);
 
 // ==== Medya Yükleme (byte progress + multiple + drag&drop) ====
 function __bindMedyaUpload() {
+  // Bu özellik yalnız medya sayfasında aktif olmalı
+  const drop = document.getElementById('dropZone');
+  if (!drop) return; // Medya sayfası değil → hiç bağlama
+
   const form = document.getElementById('medyaYukleForm')
            || document.querySelector('form[action*="/admin/medya/yukle"]')
-           || document.getElementById('medyaForm')  // varsa toplu sil formu
-           || document.body;                        // en son çare
-  // formsuz modda bile devam ediyoruz (return yok)
+           || document.getElementById('medyaForm'); // body fallback YOK
+  if (!form) return; // Form da yoksa hiç bağlama
 
   if (form.dataset.uploadBound === '1') return; // ikinci kez bağlama
   form.dataset.uploadBound = '1';
@@ -672,15 +675,13 @@ function __bindMedyaUpload() {
     }
   }
 
-  // Güvenlik: herhangi bir nedenle native submit tetiklense bile tamamen engelle
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    // Bilerek runUpload çağırmıyoruz; native submit'i sadece iptal ediyoruz.
-  }, { capture: true, passive: false });
-
-  // Drag & drop: formu hedef alan yap
-  const drop = document.getElementById('dropZone') || form;
+  // Sadece upload formunda native submit'i engelle
+  if (form.id === 'medyaYukleForm' || /\/admin\/medya\/yukle/i.test(form.getAttribute('action') || '')) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }, { capture: true, passive: false });
+  }
 
   // Dropzone erişilebilirlik ve tıklanabilirlik
   drop.setAttribute('role','button');
@@ -749,6 +750,43 @@ if (document.readyState !== 'loading') {
   }
 }
 
+// === Tekil sil (dinamik kartlar için delegasyon) ===
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.btn-sil-tek');
+  if (!btn) return;
+
+  e.preventDefault();
+
+  const id   = btn.dataset.id;
+  const name = btn.dataset.name || ('#' + id);
+
+  const hiddenSingleId = document.getElementById('hiddenSingleId');
+  const confirmText    = document.getElementById('confirmText');
+  const confirmBtn     = document.getElementById('confirmBtn');
+  const confirmModalEl = document.getElementById('confirmDeleteModal');
+  const medyaForm      = document.getElementById('medyaForm');
+
+  if (!hiddenSingleId || !confirmText || !confirmBtn || !confirmModalEl || !medyaForm) return;
+
+  hiddenSingleId.value = id;
+  confirmText.textContent = `"${name}" adlı görsel silinecek. Bu işlem geri alınamaz.`;
+
+  const modal = (bootstrap && bootstrap.Modal && bootstrap.Modal.getOrCreateInstance)
+    ? bootstrap.Modal.getOrCreateInstance(confirmModalEl)
+    : new bootstrap.Modal(confirmModalEl);
+
+  const onConfirm = (ev) => {
+    ev.preventDefault();
+    medyaForm.action = (typeof BASE !== 'undefined') ? `${BASE}/admin/medya/sil` : '/admin/medya/sil';
+    modal.hide();
+    medyaForm.submit(); // native submit: olası submit handler'ı bypass eder
+  };
+  confirmBtn.addEventListener('click', onConfirm, { once: true });
+
+  modal.show();
+});
+
+
 // === TEK ve KESİN durum toggle handler ===
 document.addEventListener('click', async (e) => {
   const btn = e.target.closest('.js-durum-btn');
@@ -797,6 +835,7 @@ document.addEventListener('click', async (e) => {
     btn.disabled = false;
   }
 });
+
 
 // --- Cursor'u garanti altına al (inline !important) ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -885,12 +924,18 @@ function showToast(msg = 'İşlem tamam', type = 'success'){
   const csrf = document.querySelector('meta[name="csrf"]')?.getAttribute('content') || '';
   const grid = document.getElementById('medya-grid');
   const ara  = document.getElementById('medya-ara');
-  const etiketWrap = document.getElementById('etiket-filter');
+  const etiketWrap  = document.getElementById('etiket-filter');
+  const modeBtn     = document.getElementById('etiket-mode');
+  const clearBtn    = document.getElementById('etiket-clear');
+  const sonucBilgi  = document.getElementById('sonuc-bilgi');
 
-  let aktifTag = '';
+  let tags = new Set();     // çoklu seçim
+  let mode = 'any';         // 'any' | 'all'  (Mod: En az biri = any)
   let q = '';
   let sayfa = 1;
   let isLoading = false;
+  // — Önizleme modalı için aktif media id
+  let __metaCurrentMid = null;
 
   function htmlesc(s){return s.replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 
@@ -904,23 +949,42 @@ function showToast(msg = 'İşlem tamam', type = 'success'){
     return r.json();
   }
 
-  function kartHTML(k) {
-    const thumb = k.yol_thumb || k.yol;
-    const etiketler = (k.etiketler||[]).map(e => `<span class="badge text-bg-light border">${htmlesc(e.ad)}</span>`).join(' ');
-    return `
-      <div class="col">
-        <div class="card shadow-sm h-100">
+function kartHTML(k) {
+  const raw   = k.yol_thumb || k.yol;
+  const thumb = (typeof __normUploadUrl === 'function') ? __normUploadUrl(raw) : raw;
+  const full  = (typeof __normUploadUrl === 'function') ? __normUploadUrl(k.yol) : k.yol;
+  const fname = (k.yol || '').split('/').pop() || ('#' + k.id);
+  const etiketler = (k.etiketler||[]).map(e => `<span class="badge text-bg-light border">${htmlesc(e.ad)}</span>`).join(' ');
+
+  return `
+    <div class="col">
+      <div class="card shadow-sm h-100">
+        <a href="${htmlesc(full)}" class="media-thumb" data-src="${htmlesc(full)}" data-mid="${k.id}">
           <img src="${htmlesc(thumb)}" class="card-img-top" loading="lazy" alt="">
-          <div class="card-body p-2">
-            <div class="small text-muted mb-1">${htmlesc(k.mime)} · ${(k.genislik||'?')}×${(k.yukseklik||'?')}</div>
-            <div class="d-flex flex-wrap gap-1">${etiketler}</div>
-            <div class="d-flex justify-content-end mt-2">
-              <button class="btn btn-sm btn-outline-secondary btn-etiketle" data-mid="${k.id}">Etiketler</button>
-            </div>
+        </a>
+
+        <div class="card-body p-2">
+          <div class="small text-muted mb-1">
+              ${htmlesc((k.yol||'').split('/').pop() || ('dosya-'+k.id))}
+            &nbsp;·&nbsp;${(k.genislik||'?')}×${(k.yukseklik||'?')}
           </div>
+          <div class="d-flex flex-wrap gap-1">${etiketler}</div>
         </div>
-      </div>`;
-  }
+
+        <!-- view ile tam uyumlu footer: -->
+        <div class="card-footer d-flex justify-content-between align-items-center p-2">
+          <div class="form-check m-0">
+            <input class="form-check-input chk" type="checkbox" name="ids[]" value="${k.id}">
+          </div>
+          <button type="button"
+                  class="btn btn-sm btn-outline-danger btn-sil-tek"
+                  data-id="${k.id}"
+                  data-name="${htmlesc(fname)}">Sil</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 
   async function listeYukle(reset = true) {
     if (isLoading) return;
@@ -931,7 +995,8 @@ function showToast(msg = 'İşlem tamam', type = 'success'){
     }
     const params = new URLSearchParams();
     if (q) params.set('q', q);
-    if (aktifTag) params.set('tag', aktifTag);
+    if (tags.size) params.set('tags', Array.from(tags).join(','));
+    if (mode && tags.size) params.set('mode', mode);
     params.set('sayfa', String(sayfa));
     params.set('limit', '36');
 
@@ -949,19 +1014,35 @@ function showToast(msg = 'İşlem tamam', type = 'success'){
     const js = await fetchJSON(api('/admin/api/medya/etiketler'));
     const el = etiketWrap;
     el.innerHTML = '';
+
+    // "Tümü" (filtre temizle)
     const hepsi = document.createElement('button');
-    hepsi.className = `btn btn-sm ${aktifTag ? 'btn-outline-secondary':'btn-secondary'}`;
+    hepsi.className = 'btn btn-sm ' + (tags.size ? 'btn-outline-secondary' : 'btn-secondary');
     hepsi.textContent = 'Tümü';
-    hepsi.onclick = () => { aktifTag = ''; listeYukle(true); etiketBulutu(); };
+    hepsi.onclick = () => { tags.clear(); listeYukle(true); etiketBulutu(); };
     el.appendChild(hepsi);
 
-    (js.etiketler||[]).forEach(e => {
+    // Etiket chip'leri (çoklu seçim)
+    (js.etiketler || []).forEach(e => {
       const b = document.createElement('button');
-      b.className = 'btn btn-sm ' + (aktifTag === e.slug ? 'btn-secondary' : 'btn-outline-secondary');
-      b.textContent = `${e.ad} (${e.adet})`;
-      b.onclick = () => { aktifTag = (aktifTag === e.slug ? '' : e.slug); listeYukle(true); etiketBulutu(); };
+      const selected = tags.has(e.slug);
+      b.className = 'btn btn-sm ' + (selected ? 'btn-secondary' : 'btn-outline-secondary');
+      b.innerHTML = `${e.ad || e.slug} <span class="opacity-75">(${e.adet || 0})</span>`;
+      b.dataset.slug = e.slug;
+      b.onclick = () => {
+        if (tags.has(e.slug)) { tags.delete(e.slug); } else { tags.add(e.slug); }
+        listeYukle(true);
+        etiketBulutu();
+      };
       el.appendChild(b);
     });
+
+    // Mod düğmesi etiketini ve rengini güncelle
+    if (modeBtn) {
+      modeBtn.textContent = 'Mod: ' + (mode === 'all' ? 'Tümü' : 'En az biri');
+      modeBtn.classList.toggle('btn-danger', mode === 'any');
+      modeBtn.classList.toggle('btn-warning', mode === 'all');
+    }
   }
 
   // Arama debounce
@@ -970,26 +1051,6 @@ function showToast(msg = 'İşlem tamam', type = 'success'){
     q = ara.value.trim();
     clearTimeout(t);
     t = setTimeout(() => listeYukle(true), 250);
-  });
-
-  // Kart üzerindeki "Etiketler" butonu
-  grid.addEventListener('click', async (ev) => {
-    const btn = ev.target.closest('.btn-etiketle');
-    if (!btn) return;
-    const mid = btn.getAttribute('data-mid');
-    const mevcut = Array.from(btn.closest('.card').querySelectorAll('.badge'))
-                        .map(b => b.textContent.replace(/\s+\(\d+\)$/, '').trim());
-    const giris = prompt('Etiketleri virgülle yaz (ör: ürün, kapak, web):', mevcut.join(', '));
-    if (giris === null) return;
-    const gonder = { medya_id: Number(mid), etiketler: giris };
-    const js = await fetchJSON(api('/admin/api/medya/etiketle'), { method:'POST', body: JSON.stringify(gonder) });
-    if (js && js.ok) {
-      // Yeniden çiz
-      listeYukle(true);
-      etiketBulutu();
-    } else {
-      alert('Kaydedilemedi: ' + (js?.hata || 'BELİRSİZ'));
-    }
   });
 
 const bulkTagBtn     = document.getElementById('bulkTagBtn');
@@ -1062,4 +1123,37 @@ document.getElementById('bulkTagForm')?.addEventListener('submit', async (e) => 
       if (!isLoading) { sayfa++; listeYukle(false); }
     }
   });
+
+  // Mod: En az biri / Tümü (any/all)
+  modeBtn?.addEventListener('click', () => {
+    mode = (mode === 'all') ? 'any' : 'all';
+    listeYukle(true);
+    etiketBulutu();
+  });
+
+  // Filtre temizle
+  clearBtn?.addEventListener('click', () => {
+    tags.clear();
+    listeYukle(true);
+    etiketBulutu();
+  });
+
+  // Görsele tıklayınca önizleme modalı ya da yeni sekme
+  grid.addEventListener('click', (ev) => {
+    const a = ev.target.closest('.js-preview');
+    if (!a) return;
+
+    // Eğer özel bir modal fonksiyonun varsa onu kullan:
+    // örn: window.openMedyaPreview({ id, src })
+    const id  = a.dataset.id;
+    const src = a.dataset.src || a.href;
+
+    // Varsayılan: yeni sekme (target="_blank" zaten var)
+    // Modal kullanacaksan:
+    // ev.preventDefault();
+    // if (typeof window.openMedyaPreview === 'function') {
+    //   window.openMedyaPreview({ id, src });
+    // }
+  });
+
 })();

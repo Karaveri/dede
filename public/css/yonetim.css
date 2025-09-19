@@ -1,77 +1,207 @@
-.sol-menu .list-group-item {
+/* =========================================
+   Admin Panel — Theme-ready (Bootstrap 5.3)
+   ========================================= */
+
+/* ------------ Tema Değişkenleri ------------ */
+/* (Light vars + Dark override; OS yerine data-bs-theme’e bağlıdır) */
+:root,
+:root[data-bs-theme="light"]{
+  /* Dropzone ve yardımcılarımız */
+  --dz-bg: #e9ecef;
+  --dz-fg: #2b2f33;
+  --dz-border: #c7ccd1;
+  --dz-bg-hover: #f7e8dd;
+  --dz-border-hover: #f0b38a;
+
+  --GriBg: #d0d0d1;
+  --SiyahYazi: #000;
+  --blackBorder: 1px solid #c7ccd1;
+
+  --margintb: 20px 0 15px 0;
+}
+:root[data-bs-theme="dark"]{
+  --dz-bg: #2b2f33;
+  --dz-fg: #e9ecef;
+  --dz-border: #475057;
+  --dz-bg-hover: #3a2f2a;
+  --dz-border-hover: #f0b38a;
+
+  --GriBg: #2b2f33;
+  --SiyahYazi: #e9ecef;
+  --blackBorder: 1px solid #475057;
+}
+
+/* ------------- Light/Dark eşitlemeleri ------------- */
+/* Dark modda sabit beyaz/siyah sınıfları gövde rengine bağla */
+:root[data-bs-theme="dark"] .bg-white,
+:root[data-bs-theme="dark"] .bg-light{
+  background-color: var(--bs-body-bg) !important;
+  color: var(--bs-body-color) !important;
+}
+/* Light modda sabit .bg-dark kullanan yerleri nötrle */
+:root[data-bs-theme="light"] .bg-dark{
+  background-color: var(--bs-body-bg) !important;
+  color: var(--bs-body-color) !important;
+}
+
+/* Orta içerik ve body temayla eşitlensin (yenileme gereksin olmasın) */
+html[data-bs-theme] body,
+html[data-bs-theme] .content{
+  background-color: var(--bs-body-bg) !important;
+  color: var(--bs-body-color) !important;
+}
+
+/* =========================================
+   Yerleşim ve menü
+   ========================================= */
+.sol-menu .list-group-item{
   border: 0;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--bs-border-color);
   padding: .75rem 1rem;
 }
-.menu-baglantisi {
+.menu-baglantisi{
   text-decoration: none;
-  color: #333;
+  color: inherit;
   display: block;
 }
-.menu-baglantisi:hover { color: #0d6efd; }
+.menu-baglantisi:hover{ color: var(--bs-primary); }
 
-@media (min-width: 992px) {
-  aside { position: sticky; top: 56px; }
+main{ word-break: break-word; }
+.offcanvas .list-group-item{ border-bottom: 1px solid var(--bs-border-color); }
+.table td, .table th{ vertical-align: middle; }
+
+/* Aktif menü elemanı */
+.sol-menu .list-group-item.active{
+  background-color: var(--bs-primary);
+  border-color: var(--bs-primary);
+  color: var(--bs-white);
 }
 
-main { word-break: break-word; }
+/* =========================================
+   Buton kısayolları (mevcudu koru)
+   ========================================= */
+.araust{ width:55px; background-color:#cc0022; color:#fff; border-color:#ff0022; }
+.liste { width:85px; background-color:#cc0022; color:#fff; border-color:#ff0022; }
+.yenikat{ width:190px; background-color:#196f36; color:#fff; border-color:#0b4212; }
+.copkutu{ width:177px; background-color:#6c757d; color:#fff; border-color:#3d4347; }
 
-.offcanvas .list-group-item { border-bottom: 1px solid #f1f1f1; }
-
-.table td, .table th { vertical-align: middle; }
-
-.sol-menu .list-group-item.active {
-  background-color: #0d6efd;
-  border-color: #0d6efd;
-  color: #fff;
-}
-.sol-menu .list-group-item.active {
-  background-color:#0d6efd; border-color:#0d6efd; color:#fff;
-}
-
-.araust {width:55px; background-color:#cc0022; color:#fff; border-color: #ff0022; }
-.liste {width:85px; background-color:#cc0022; color:#fff; border-color: #ff0022; }
-.yenikat {width: 190px; background-color: #196f36; color: #fff; border-color: #0b4212;}
-.copkutu {width: 177px; background-color: #6c757d; color: #fff; border-color: #3d4347;}
-
-.table td.ozet-cell {
+/* Uzun özet hücresi */
+.table td.ozet-cell{
   max-width: 520px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* Cursor'u tıklanabilirlerde kesin pointer yap */
-a[href],
-button,
-.btn,
-[role="button"],
-.nav-link,
-.dropdown-item,
-.page-link {
+/* Tıklanabilir imleç */
+a[href], button, .btn, [role="button"], .nav-link, .dropdown-item, .page-link{
   cursor: pointer !important;
 }
 
-/* Devre dışı öğelerde ise el işareti olmasın */
-.btn:disabled,
-[disabled],
-a.disabled,
-.disabled {
+/* Devre dışı */
+.btn:disabled, [disabled], a.disabled, .disabled{
   cursor: not-allowed !important;
   pointer-events: none;
 }
 
-.imgCenter {
-  display: block;
-  margin: auto;
-  width: 50%;
-}
+/* Görsel merkezleme */
+.imgCenter{ display:block; margin:auto; width:50%; }
 
-.is-dragover { outline: 2px dashed #0d6efd; outline-offset: 6px; }
+/* =========================================
+   Dropzone (temadan beslenir)
+   ========================================= */
+.is-dragover{ outline: 2px dashed var(--bs-primary); outline-offset: 6px; }
 
-#dropZone {
+#dropZone{
   cursor: pointer !important;
-  background-color: #dc2c2d;
-  color:#fff;
   border: 1px dashed !important;
 }
+
+#dropZone.dropzone{
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  padding: 28px;
+  border-radius: 12px;
+  border: 2px dashed var(--dz-border);
+  background: var(--dz-bg);
+  color: var(--dz-fg);
+  transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .12s ease;
+  outline: none;
+}
+#dropZone .dz-inner{ text-align: center; }
+#dropZone .dz-icon{ display:block; margin:0 auto 10px; opacity:.9; }
+#dropZone .dz-title{ margin:2px 0 0; font-weight:600; }
+#dropZone .dz-hint{ margin:2px 0 0; font-size:.9rem; opacity:.8; }
+
+#dropZone:hover,
+#dropZone.is-dragover{
+  background: var(--dz-bg-hover);
+  border-color: var(--dz-border-hover);
+  box-shadow: 0 4px 18px rgba(0,0,0,.08);
+}
+#dropZone.is-dragover{ transform: scale(0.998); }
+#dropZone:focus-visible{ box-shadow: 0 0 0 3px rgba(13,110,253,.35); }
+#dropZone.dropzone{ min-height: 150px; }
+
+/* =========================================
+   Etiket/chip yardımcıları ve ufak yardımcılar
+   ========================================= */
+.btn-tumu{ background: var(--dz-border-hover) !important; color:#fff; }
+#medyaSonuc{ margin: var(--margintb); }
+.margintb{ margin: var(--margintb); }
+.chackBg{ background-color: var(--GriBg); border: var(--blackBorder); }
+
+
+/* Orta içerik alanını (main) temaya zorla — anında senkron */
+html[data-bs-theme] body,
+html[data-bs-theme] main,
+html[data-bs-theme] .content,
+html[data-bs-theme] .container-fluid > .row > main {
+  background-color: var(--bs-body-bg) !important;
+  color: var(--bs-body-color) !important;
+}
+
+/* Sol menüyü dikey kolon yap (dock’u alta itmek için) */
+.sol-menu {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* Tema dock: altta sticky + yatay tam ortalı */
+.theme-dock{
+  margin-top: auto;
+  position: sticky;
+  bottom: 10px;
+
+  /* ortalama için önemli */
+  width: 100%;
+  display: flex;
+  justify-content: center;   /* ← yatay merkez */
+  align-items: center;
+  gap: 18px;
+
+  padding: .5rem 0;
+}
+
+/* List-group’dan gelebilecek muhtemel sol/sağ boşlukları etkisiz kıl */
+.sol-menu .theme-dock{
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* İkonların görünümü (istersen koru) */
+.theme-ico{
+  width: 28px; height: 28px;
+  border: 0; background: transparent;
+  color: var(--bs-body-color);
+  display: grid; place-items: center;
+  opacity: .8; transition: transform .12s ease, opacity .12s ease;
+}
+.theme-ico:hover{ opacity: 1; transform: scale(1.05); }
+.theme-ico.active{ color: var(--bs-primary); opacity: 1; }
+
+

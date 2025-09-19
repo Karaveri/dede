@@ -23,18 +23,21 @@ $hata  = $_SESSION['hata']  ?? null; unset($_SESSION['hata']);
   <title><?= isset($title) ? htmlspecialchars($title) . ' - Yönetim' : 'Yönetim' ?></title>
   <meta name="base" content="<?= htmlspecialchars(rtrim(BASE_URL, '/'), ENT_QUOTES) ?>">
   <meta name="csrf" content="<?= htmlspecialchars(\App\Core\Csrf::token(), ENT_QUOTES) ?>">
+  <script>
+  (() => {
+    const key = 'theme';
+    const pref = localStorage.getItem(key) || 'auto';
+    const sys  = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    const theme = pref === 'auto' ? sys : pref;
+    document.documentElement.setAttribute('data-bs-theme', theme);
+  })();
+  </script>
   <!-- Bootstrap CDN (yol derdi yok) -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
         integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <link href="<?= BASE_URL ?>/css/yonetim.css" rel="stylesheet">
 
-  <style>
-    body { background:#f7f7f9; }
-    .sidebar { min-height: 100vh; background:#fff; border-right:1px solid #e9ecef; }
-    .sidebar .list-group-item { border:0; border-bottom:1px solid #eef2f5; }
-    .sidebar .list-group-item.active { background:#0d6efd; }
-    .content { padding:16px; }
-    @media (max-width: 991.98px) { .sidebar { min-height:auto; } }
-  </style>
+
 </head>
 <body>
 
@@ -48,7 +51,7 @@ $hata  = $_SESSION['hata']  ?? null; unset($_SESSION['hata']);
 <div class="container-fluid">
   <div class="row">
     <!-- SOL MENÜ (ORTAK) -->
-    <aside class="col-12 col-lg-2 sidebar p-0">
+    <aside class="col-12 col-lg-2 sidebar p-0 d-flex flex-column min-vh-100">
       <div class="list-group list-group-flush">
         <a class="list-group-item list-group-item-action <?= (rtrim($reqPath,'/') === rtrim($base.'/admin','/') ? 'active text-white' : '') ?>"
             href="<?= $base ?>/admin">Gösterge Paneli</a>
@@ -89,6 +92,5 @@ $hata  = $_SESSION['hata']  ?? null; unset($_SESSION['hata']);
 <!-- Bootstrap JS CDN -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous">
 </script>
-
 </body>
 </html>

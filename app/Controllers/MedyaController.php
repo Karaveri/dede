@@ -28,11 +28,9 @@ class MedyaController extends AdminController
         // Arama filtresi
         $where  = '';
         $params = [];
-        
         if ($q !== '') {
-            $where = 'WHERE yol LIKE :q1 OR mime LIKE :q2';
-            $params[':q1'] = '%'.$q.'%';
-            $params[':q2'] = '%'.$q.'%';
+            $where = 'WHERE yol LIKE :q OR mime LIKE :q';
+            $params[':q'] = '%'.$q.'%';
         }
 
         // Sayı
@@ -45,9 +43,12 @@ class MedyaController extends AdminController
         $sql = "SELECT id, yol, yol_thumb, mime, genislik, yukseklik
                 FROM medya $where
                 ORDER BY id DESC
-                LIMIT {$limit} OFFSET {$ofset}";
+                LIMIT :l OFFSET :o";
         $st  = DB::pdo()->prepare($sql);
-        $st->execute($params);
+        foreach ($params as $k => $v) $st->bindValue($k, $v, PDO::PARAM_STR);
+        $st->bindValue(':l', $limit, PDO::PARAM_INT);
+        $st->bindValue(':o', $ofset, PDO::PARAM_INT);
+        $st->execute();
         $medyalar = $st->fetchAll(PDO::FETCH_ASSOC);
 
         // >>> Layout otomatik (admin/sablon.php)
@@ -428,7 +429,9 @@ class MedyaController extends AdminController
     {
         $pdo = \App\Core\DB::pdo();
         $q    = trim($_GET['q']   ?? '');
-        $tag  = trim($_GET['tag'] ?? '');
+        $tagsCsv = trim($_GET['tags'] ?? '');
+        $mode    = (($_GET['mode'] ?? 'any') === 'all') ? 'all' : 'any';
+        $tag     = trim($_GET['tag'] ?? ''); // geriye dönük uyumluluk
         $sayfa = max(1, (int)($_GET['sayfa'] ?? 1));
         $limit = min(100, max(12, (int)($_GET['limit'] ?? 36)));
         $ofset = ($sayfa - 1) * $limit;
@@ -436,16 +439,51 @@ class MedyaController extends AdminController
         $join  = '';
         $where = [];
         $param = [];
+        $group = '';
 
         if ($q !== '') {
-            $where[] = '(m.yol LIKE :q1 OR m.mime LIKE :q2)';
-            $param[':q1'] = "%{$q}%";
-            $param[':q2'] = "%{$q}%";
+            $where[] = '(m.yol LIKE :q OR m.mime LIKE :q)';
+            $param[':q'] = "%{$q}%";
         }
-        if ($tag !== '') {
-            $join .= ' INNER JOIN medya_etiket me ON me.medya_id = m.id
-                       INNER JOIN etiketler e ON e.id = me.etiket_id AND e.slug = :tag';
-            $param[':tag'] = $tag;
+        
+        // Çoklu etiket desteği (tags=csv) + geri uyumluluk (tag)
+        $slugs = [];
+        if ($tagsCsv !== '') {
+            foreach (array_filter(array_map('trim', explode(',', $tagsCsv))) as $s) {
+                if ($s !== '') $slugs[] = $s;
+            }
+        }
+        if ($tag !== '') { $slugs[] = $tag; }
+        $slugs = array_values(array_unique($slugs));
+
+        if (!empty($slugs)) {
+            if ($mode === 'all') {
+                // Tümü: JOIN + HAVING COUNT(DISTINCT) = N
+                $join .= ' JOIN medya_etiket mef ON mef.medya_id = m.id
+                           JOIN etiketler ef ON ef.id = mef.etiket_id ';
+                $inPh = [];
+                foreach ($slugs as $i => $slug) {
+                    $ph = ":t{$i}";
+                    $inPh[] = $ph;
+                    $param[$ph] = $slug;
+                }
+                $where[] = 'ef.slug IN ('.implode(',', $inPh).')';
+                $group   = ' GROUP BY m.id HAVING COUNT(DISTINCT ef.slug) = '.count($slugs).' ';
+            } else {
+                // En az biri: alt sorgu
+                $inPh = [];
+                foreach ($slugs as $i => $slug) {
+                    $ph = ":t{$i}";
+                    $inPh[] = $ph;
+                    $param[$ph] = $slug;
+                }
+                $where[] = 'm.id IN (
+                    SELECT me2.medya_id
+                    FROM medya_etiket me2
+                    JOIN etiketler e2 ON e2.id = me2.etiket_id
+                    WHERE e2.slug IN ('.implode(',', $inPh).')
+                )';
+            }
         }
 
         $wsql = $where ? (' WHERE ' . implode(' AND ', $where)) : '';
@@ -453,9 +491,13 @@ class MedyaController extends AdminController
                  FROM medya m
                  {$join}
                  {$wsql}
-                 ORDER BY m.created_at DESC " . "LIMIT {$limit} OFFSET {$ofset}";
+                 {$group}
+                 ORDER BY m.created_at DESC
+                 LIMIT :limit OFFSET :ofset";
         $stmt = $pdo->prepare($sql);
         foreach ($param as $k => $v) $stmt->bindValue($k, $v);
+        $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
+        $stmt->bindValue(':ofset', $ofset, \PDO::PARAM_INT);
         $stmt->execute();
         $kayitlar = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
@@ -477,9 +519,10 @@ class MedyaController extends AdminController
     // === API: etiket bulutu
     public function apiEtiketler()
     {
+        $pdo = \App\Core\DB::pdo();
         $mid = (int)($_GET['mid'] ?? 0);
         if ($mid > 0) {
-            $st = \App\Core\DB::pdo()->prepare("
+            $st = $pdo->prepare("
                 SELECT e.slug, e.ad
                 FROM medya_etiket me
                 JOIN etiketler e ON e.id = me.etiket_id
@@ -518,7 +561,6 @@ class MedyaController extends AdminController
         $g = json_decode(file_get_contents('php://input'), true) ?: [];
         $mid = (int)($g['medya_id'] ?? 0);
         $girilen = $g['etiketler'] ?? [];
-        $mod = strtolower((string)($g['mod'] ?? 'replace')); // 'replace' | 'append'
 
         if (!$mid || (!is_array($girilen) && !is_string($girilen))) {
             return $this->jsonErr('GEÇERSİZ_VERİ');
@@ -560,16 +602,13 @@ class MedyaController extends AdminController
             $mevcut->execute([':mid' => $mid]);
             $mevcutIds = array_map('intval', array_column($mevcut->fetchAll(\PDO::FETCH_ASSOC), 'etiket_id'));
 
-            // Silinecekler (sadece replace modunda)
-            if ($mod !== 'append') {
-                $silinecek = array_diff($mevcutIds, $yeniIds);
-                if (!empty($silinecek)) {
-                    $in = implode(',', array_fill(0, count($silinecek), '?'));
-                    $del = $pdo->prepare("DELETE FROM medya_etiket WHERE medya_id = ? AND etiket_id IN ($in)");
-                    $del->execute(array_merge([$mid], array_values($silinecek)));
-                }
+            $silinecek = array_diff($mevcutIds, $yeniIds);
+            if ($silinecek) {
+                $in = implode(',', array_fill(0, count($silinecek), '?'));
+                $del = $pdo->prepare("DELETE FROM medya_etiket WHERE medya_id = ? AND etiket_id IN ($in)");
+                $del->execute(array_merge([$mid], array_values($silinecek)));
             }
-            
+
             $eklenecek = array_diff($yeniIds, $mevcutIds);
             if ($eklenecek) {
                 $insMe = $pdo->prepare("INSERT IGNORE INTO medya_etiket (medya_id, etiket_id) VALUES (:mid, :eid)");
@@ -599,46 +638,6 @@ class MedyaController extends AdminController
         }
     }
 
-    public function apiMetaGet()
-    {
-        $mid = (int)($_GET['mid'] ?? 0);
-        if ($mid <= 0) return $this->jsonErr('GEÇERSİZ_ID');
-
-        $pdo = \App\Core\DB::pdo();
-        $st  = $pdo->prepare("SELECT id, alt_text, `title` FROM medya WHERE id = :id");
-        $st->execute([':id' => $mid]);
-        $row = $st->fetch(\PDO::FETCH_ASSOC);
-        if (!$row) return $this->jsonErr('MEDYA_YOK');
-
-        return $this->jsonOk(['medya' => $row]);
-    }
-
-    public function apiMetaGuncelle()
-    {
-        try {
-            $g = json_decode(file_get_contents('php://input'), true) ?: [];
-            $mid  = (int)($g['medya_id'] ?? 0);
-            $alt  = trim((string)($g['alt_text'] ?? ''));
-            $tit  = trim((string)($g['title'] ?? ''));
-
-            if ($mid <= 0) return $this->jsonErr('GEÇERSİZ_ID');
-            if (mb_strlen($alt) > 255)  return $this->jsonErr('ALT_TEXT_UZUN');
-            if (mb_strlen($tit) > 150)  return $this->jsonErr('TITLE_UZUN');
-
-            $pdo = \App\Core\DB::pdo(); // <<< DİKKAT: \App\Core\DB (iki ::)
-            $st  = $pdo->prepare("UPDATE medya SET alt_text = :alt, `title` = :tit WHERE id = :id");
-            $st->execute([
-                ':alt' => ($alt === '' ? null : $alt),
-                ':tit' => ($tit === '' ? null : $tit),
-                ':id'  => $mid
-            ]);
-
-            return $this->jsonOk(['medya_id' => $mid, 'alt_text' => $alt, 'title' => $tit]);
-        } catch (\Throwable $e) {
-            return $this->jsonErr('META_KAYIT_HATASI: ' . $e->getMessage());
-        }
-    }
-
     /** Basit slug üretici — projedeki helper varsa onu kullan */
     private function slugEtiket(string $ad): string
     {
@@ -656,20 +655,138 @@ class MedyaController extends AdminController
         return substr($s, 0, 64);
     }
 
-    private function medyaByTag(string $slug, int $limit = 1): array {
-        $pdo = \App\Core\DB::pdo();
-        $sql = "SELECT m.* 
-                FROM medya m
-                JOIN medya_etiket me ON me.medya_id = m.id
-                JOIN etiketler e ON e.id = me.etiket_id
-                WHERE e.slug = :slug
-                ORDER BY m.created_at DESC
-                LIMIT :lim";
-        $st = $pdo->prepare($sql);
-        $st->bindValue(':slug', $slug);
-        $st->bindValue(':lim', $limit, \PDO::PARAM_INT);
-        $st->execute();
-        return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    // === API: meta (GET) — alt_text ve title'ı getir
+    public function apiMetaGet() /* no : void */
+    {
+        try {
+            $pdo = \App\Core\DB::pdo();
+            $mid = (int)($_GET['mid'] ?? 0);
+            if ($mid <= 0) return $this->jsonErr('GEÇERSİZ_ID');
+
+            $st = $pdo->prepare("SELECT id, alt_text, title FROM medya WHERE id = :id");
+            $st->execute([':id' => $mid]);
+            $row = $st->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$row) return $this->jsonErr('BULUNAMADI');
+            return $this->jsonOk(['medya' => $row]);
+        } catch (\Throwable $e) {
+            return $this->jsonErr('META_GET_HATA', ['hata' => $e->getMessage()]);
+        }
+    }
+
+    // === API: meta (POST) — alt_text ve title'ı güncelle
+    public function apiMetaGuncelle() /* no : void */
+    {
+        try {
+            $pdo = \App\Core\DB::pdo();
+
+            // JSON ya da form-data kabul et
+            $ct  = $_SERVER['CONTENT_TYPE'] ?? '';
+            $raw = file_get_contents('php://input');
+            $in  = (stripos($ct, 'application/json') !== false && $raw)
+                 ? (json_decode($raw, true) ?: [])
+                 : $_POST;
+
+            $id    = (int)($in['medya_id'] ?? 0);
+            $alt   = isset($in['alt_text']) ? trim((string)$in['alt_text']) : '';
+            $title = isset($in['title'])    ? trim((string)$in['title'])    : '';
+            $yeniAdRaw = isset($in['yeni_ad']) ? trim((string)$in['yeni_ad']) : '';
+
+            if ($id <= 0) return $this->jsonErr('GEÇERSİZ_ID');
+
+            // Uzunluk ve NULL normalizasyonu
+            $alt   = ($alt === '')   ? null : mb_substr($alt,   0, 255);
+            $title = ($title === '') ? null : mb_substr($title, 0, 150);
+
+            $st = $pdo->prepare("UPDATE medya SET alt_text = :alt, title = :title WHERE id = :id");
+            $st->bindValue(':alt',   $alt,   is_null($alt)   ? \PDO::PARAM_NULL : \PDO::PARAM_STR);
+            $st->bindValue(':title', $title, is_null($title) ? \PDO::PARAM_NULL : \PDO::PARAM_STR);
+            $st->bindValue(':id',    $id, \PDO::PARAM_INT);
+            $st->execute();
+
+            // ---- Opsiyonel: dosya adını değiştir ----
+            $newYol = null;
+            $newThumb = null;
+
+            if ($yeniAdRaw !== '') {
+                // 1) Slug üret (TR → ASCII, boşluk→tire)
+                $map = ['ş'=>'s','Ş'=>'s','ı'=>'i','İ'=>'i','ç'=>'c','Ç'=>'c','ğ'=>'g','Ğ'=>'g','ü'=>'u','Ü'=>'u','ö'=>'o','Ö'=>'o'];
+                $y = strtr($yeniAdRaw, $map);
+                $y = @iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$y);
+                $y = strtolower($y);
+                $y = preg_replace('~[^a-z0-9]+~','-',$y);
+                $y = trim($y, '-');
+                if ($y === '') return $this->jsonErr('GEÇERSİZ_AD');
+
+                // 2) Mevcut kayıt
+                $q = $pdo->prepare("SELECT yol, yol_thumb FROM medya WHERE id = :id");
+                $q->execute([':id' => $id]);
+                $row = $q->fetch(\PDO::FETCH_ASSOC);
+                if (!$row) return $this->jsonErr('BULUNAMADI');
+
+                $rootPublic = realpath(dirname(__DIR__,2).'/public');
+
+                // Ana dosyanın göreli yolu (uploads/… kısmı)
+                $relMain = ltrim((string)$row['yol'], '/');
+                $absMain = $rootPublic . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relMain);
+                $dirMain = dirname($relMain);
+                $extMain = pathinfo($relMain, PATHINFO_EXTENSION);
+
+                // Thumb (varsa)
+                $relTh   = $row['yol_thumb'] ? ltrim((string)$row['yol_thumb'], '/') : null;
+                $absTh   = $relTh ? ($rootPublic . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relTh)) : null;
+                $dirTh   = $relTh ? dirname($relTh) : null;
+                $extTh   = $relTh ? pathinfo($relTh, PATHINFO_EXTENSION) : null;
+
+                // 3) Benzersiz aday isim oluştur (DB + FS çakışması kontrol)
+                $candidate = $y; $i = 1;
+                $existsInDb = function($path) use ($pdo, $id) {
+                    $s = $pdo->prepare("SELECT COUNT(1) FROM medya WHERE yol = :y AND id <> :id");
+                    $s->execute([':y'=>$path, ':id'=>$id]);
+                    return (int)$s->fetchColumn() > 0;
+                };
+
+                do {
+                    $newMainRel = $dirMain . '/' . $candidate . '.' . $extMain;
+                    $newMainAbs = $rootPublic . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $newMainRel);
+                    $newMainDb  = '/' . $newMainRel;
+
+                    $fsOk = !file_exists($newMainAbs);
+                    $dbOk = !$existsInDb($newMainDb);
+                    if ($fsOk && $dbOk) break;
+
+                    $candidate = $y . '-' . (++$i);
+                } while (true);
+
+                if (!@rename($absMain, $newMainAbs)) {
+                    return $this->jsonErr('DOSYA_TASINAMADI');
+                }
+
+                // Thumb varsa aynı ada taşı
+                if ($absTh && $dirTh && $extTh) {
+                    $newThRel = $dirTh . '/' . $candidate . '.' . $extTh;
+                    $newThAbs = $rootPublic . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $newThRel);
+                    @rename($absTh, $newThAbs);
+                    $newThumb = '/' . $newThRel;
+                }
+
+                // DB güncelle
+                $pdo->prepare("UPDATE medya SET yol = :y, yol_thumb = :t WHERE id = :id")
+                    ->execute([
+                        ':y'  => $newMainDb,
+                        ':t'  => $newThumb,
+                        ':id' => $id
+                    ]);
+
+                $newYol   = $newMainDb;
+            }
+
+            // İstemci yeni yolu kullanabilsin diye döndür
+            return $this->jsonOk(['ok' => true, 'yol' => $newYol]);            
+
+        } catch (\Throwable $e) {
+            return $this->jsonErr('META_KAYIT_HATA', ['hata' => $e->getMessage()]);
+        }
     }
 
 }

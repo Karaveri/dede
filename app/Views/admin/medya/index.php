@@ -17,36 +17,51 @@ $BASE = rtrim(BASE_URL, '/');
   <h1 class="h5 m-0">Medya Kütüphanesi</h1>
   <form method="post" action="<?= $BASE ?>/admin/medya/thumb-fix" class="ms-2">
     <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfVal, ENT_QUOTES, 'UTF-8') ?>">
-    <button type="submit" class="btn btn-sm btn-outline-secondary">Eksik küçük görselleri üret</button>
+    <button type="submit" class="btn btn-sm btn-primary">EKSİK KÜÇÜK GÖRSELLER ÜRET</button>
   </form>
 </div>
 
 <?php if ($mesaj): ?><div class="alert alert-success py-2"><?= htmlspecialchars($mesaj) ?></div><?php endif; ?>
 <?php if ($hata):  ?><div class="alert alert-danger  py-2"><?= htmlspecialchars($hata)  ?></div><?php endif; ?>
 
-<!-- Var olan grid -->
-<div id="medya-grid" class="d-none"></div>
-
 <form method="get" action="<?= BASE_URL ?>/admin/medya" class="row g-2 mb-3">
   <div class="col-auto">
-    <input type="text" name="q" value="<?= htmlspecialchars($q) ?>" class="form-control form-control-sm" placeholder="Ara (yol, mime)">
+    <input id="medya-ara" type="text" name="q" value="<?= htmlspecialchars($q) ?>" class="form-control form-control-sm" placeholder="Ara (yol, mime)">
   </div>
   <div class="col-auto">
-    <button class="btn btn-sm btn-secondary">Ara</button>
+    <button class="btn btn-sm btn-success">Ara</button>
   </div>
 </form>
 <div class="row g-2">
-  <div id="dropZone" class="border rounded p-4 text-center">
+
+<!--   <div id="dropZone" class="border rounded p-4 text-center">
     <div class="fw-semibold mb-1">Dosyaları buraya sürükleyip bırak</div>
     <div class="small text-muted" style="color: white !important;">veya tıklayıp seç</div>
+  </div> -->
+<div class="d-flex align-items-center justify-content-between mb-2">
+  <div id="etiket-filter" class="d-flex flex-wrap gap-2"></div>
+  <div class="d-flex align-items-center gap-2">
+    <button id="etiket-mode"  type="button" class="btn btn-sm btn-danger">Mod: En az biri</button>
   </div>
+  <span id="sonuc-bilgi" class="small text-muted ms-2"></span>
+</div>
+
+<div id="dropZone" class="dropzone">
+  <div class="dz-inner">
+    <!-- Basit, hafif SVG ikon -->
+    <svg class="dz-icon" width="64" height="64" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+
+    <p class="dz-title"><strong>Dosya seç</strong> ya da buraya sürükle</p>
+    <p class="dz-hint">JPEG, PNG, WEBP • Maksimum 8&nbsp;MB</p>
+  </div>
+</div>
 
   <!-- Gizli dosya input'u: JS tıklamada bunu açacak -->
   <input type="file" id="file" name="file"
          accept="image/jpeg,image/png,image/webp"
          multiple hidden>
-
-  <div class="form-text mt-2">İzinli türler: JPEG, PNG, WEBP • Maksimum 8 MB</div>
 </div>
 
 <div id="medyaSonuc"></div>
@@ -56,9 +71,9 @@ $BASE = rtrim(BASE_URL, '/');
   <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfVal, ENT_QUOTES, 'UTF-8') ?>">
   <input type="hidden" name="id" id="hiddenSingleId" value="">
 
-  <div class="d-flex align-items-center gap-2 mb-2">
+  <div class="d-flex align-items-center gap-2 mb-2 margintb">
     <div class="form-check">
-      <input class="form-check-input" type="checkbox" id="secTum">
+      <input class="form-check-input chackBg" type="checkbox" id="secTum">
       <label class="form-check-label" for="secTum">Tümünü seç</label>
     </div>
     <!-- TOPLU SİL (geri geldi) -->
@@ -71,7 +86,7 @@ $BASE = rtrim(BASE_URL, '/');
   <?php if (empty($medyalar)): ?>
     <div class="alert alert-info">Kayıt yok.</div>
   <?php else: ?>
-    <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3">
+    <div id="medya-grid" class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3">
       <?php foreach ($medyalar as $m): ?>
         <div class="col">
           <div class="card h-100">
@@ -84,6 +99,7 @@ $BASE = rtrim(BASE_URL, '/');
                data-mid="<?= (int)$m['id'] ?>">
               <img loading="lazy" decoding="async"
                    src="<?= $BASE . $thumb ?>" alt=""
+                   data-full="<?= $BASE . $m['yol'] ?>"   
                    class="card-img-top" style="object-fit:cover;">
             </a>
 
@@ -92,7 +108,8 @@ $BASE = rtrim(BASE_URL, '/');
                 <?= htmlspecialchars(basename($m['yol'])) ?>
               </div>
               <div class="text-muted small">
-                <?= htmlspecialchars($m['mime']) ?>
+                <?php $fname = basename($m['yol'] ?? ''); ?>
+                <?= htmlspecialchars($fname !== '' ? $fname : ('dosya-' . (int)$m['id'])) ?>
                 <?php if (($m['genislik'] ?? null) && ($m['yukseklik'] ?? null)): ?>
                   • <?= (int)$m['genislik'] ?>×<?= (int)$m['yukseklik'] ?>
                 <?php endif; ?>
@@ -173,6 +190,17 @@ $BASE = rtrim(BASE_URL, '/');
             <input type="text" id="mediaTitle" class="form-control form-control-sm" maxlength="150" placeholder="Örn: Kapak görseli">
           </div>
         </div>
+
+        <!-- Dosya adı (yeniden adlandırma) -->
+        <div class="row g-2 align-items-center mb-2">
+          <div class="col-12 col-sm-6">
+            <label for="mediaNewName" class="form-label form-label-sm mb-1">Dosya adı</label>
+            <input type="text" id="mediaNewName" class="form-control form-control-sm"
+                   placeholder="ör. şehri istanbula aşığın">
+            <div class="form-text">Kaydedince: <code id="slugPreview">sehri-istanbula-asigim</code></div>
+          </div>
+        </div>
+
         <button type="button" class="btn btn-sm btn-outline-primary" id="saveMetaBtn">Meta Kaydet</button>
 
         <!-- aktif medya id’si -->
@@ -244,29 +272,54 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // ÖNİZLEME MODALI (etiket yüklemeli)
-  document.querySelectorAll('.media-thumb').forEach(a => {
-    a.addEventListener('click', async (e) => {
-      e.preventDefault();
-      const src = a.dataset.src;
-      const mid = a.dataset.mid || '';
+  // ÖNİZLEME MODALI (delegasyon: sonradan eklenen kartlar da çalışır)
+  document.addEventListener('click', async (e) => {
+    const a = e.target.closest('.media-thumb');
+    if (!a) return;
+    e.preventDefault();
+    const src = a.dataset.src;
+    const mid = a.dataset.mid || '';
 
-      document.getElementById('mediaModalImg').src = src;
-      document.getElementById('mediaUrl').value  = src;
-      document.getElementById('openNewTab').href = src;
-      document.getElementById('mediaMid').value  = mid;
+    document.getElementById('mediaModalImg').src = src;
+    document.getElementById('mediaUrl').value  = src;
+    document.getElementById('openNewTab').href = src;
+    document.getElementById('mediaMid').value  = mid;
+    const nn = document.getElementById('mediaNewName');
+    const sp = document.getElementById('slugPreview');
+    if (nn) {
+      // 1) Placeholder: mevcut dosya adının (uzantısız) kendisi
+      try {
+        // src => .../dosya-adi.webp
+        const base = (src.split('/').pop() || '').replace(/\.[^.]+$/, '');
+        nn.value = '';                 // kullanıcı yazsın; boş bırakıyoruz
+        nn.placeholder = base || '';   // öneri olarak göster
+      } catch { nn.value = ''; }
 
-      if (mid) {
-        await loadTags(mid); // aşağıda tanımlıyoruz
-      } else {
-        renderBadges([]);
-        document.getElementById('mediaTags').value = '';
-      }
-      // meta bilgileri de getir
-      await loadMeta(mid);
-      const m = bootstrap.Modal.getOrCreateInstance(document.getElementById('mediaModal'));
-      m.show();
-    });
+      // 2) Canlı slug önizleme
+      const slugifyTr = (s) => {
+        const map = {'ş':'s','Ş':'s','ı':'i','İ':'i','ç':'c','Ç':'c','ğ':'g','Ğ':'g','ü':'u','Ü':'u','ö':'o','Ö':'o'};
+        s = s.replace(/[şŞıİçÇğĞüÜöÖ]/g, ch => map[ch] || ch)
+             .normalize('NFD').replace(/[\u0300-\u036f]/g,'') // aksan temizle
+             .toLowerCase().replace(/[^a-z0-9]+/g,'-')
+             .replace(/^-+|-+$/g,'');
+        return s;
+      };
+
+      const updatePreview = () => {
+        const seed = nn.value.trim() || nn.placeholder || '';
+        if (sp) sp.textContent = slugifyTr(seed);
+      };
+
+      // açılışta bir kez doldur
+      updatePreview();
+      // kullanıcı yazdıkça güncelle (önceki handler’ı ezmek için oninput kullanıyoruz)
+      nn.oninput = updatePreview;
+    }
+
+    if (mid) { await loadTags(mid); } else { renderBadges([]); document.getElementById('mediaTags').value = ''; }
+    await loadMeta(mid);
+    const m = bootstrap.Modal.getOrCreateInstance(document.getElementById('mediaModal'));
+    m.show();
   });
 
   // BASE ve CSRF (formdan ya da meta'dan)
@@ -453,7 +506,11 @@ document.addEventListener('DOMContentLoaded', function () {
     const mid = parseInt(document.getElementById('mediaMid').value || '0', 10);
     const alt = document.getElementById('mediaAlt').value || '';
     const tit = document.getElementById('mediaTitle').value || '';
+    const yeni = (document.getElementById('mediaNewName')?.value || '').trim();
     if (!mid) return;
+
+    const payload = { medya_id: mid, alt_text: alt, title: tit };
+    if (yeni) payload.yeni_ad = yeni; // sadece doluysa gönder
 
     const resp = await fetchJSON(`${BASE}/admin/api/medya/meta`, {
       method: 'POST',
@@ -461,10 +518,17 @@ document.addEventListener('DOMContentLoaded', function () {
         'Content-Type': 'application/json',
         ...(csrf ? { 'X-CSRF-Token': csrf, 'X-CSRF': csrf } : {})
       },
-      body: JSON.stringify({ medya_id: mid, alt_text: alt, title: tit })
+      body: JSON.stringify(payload)
     });
 
     if (resp.ok && resp.json?.ok) {
+      // Sunucu yeni yol döndürdüyse URL alanını tazele
+      if (resp.json?.yol) {
+        const urlInp = document.getElementById('mediaUrl');
+        const openA  = document.getElementById('openNewTab');
+        urlInp && (urlInp.value = resp.json.yol);
+        openA && (openA.href = resp.json.yol);
+      }      
       showToast('Meta bilgileri kaydedildi.', 'success');
     } else {
       showToast('Meta kaydedilemedi: ' + (resp.json?.hata || `HTTP ${resp.status}`), 'danger');
