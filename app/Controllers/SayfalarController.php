@@ -1,5 +1,7 @@
 <?php
 namespace App\Controllers;
+use App\Core\Database;
+use PDO;
 
 use App\Core\Csrf;
 use App\Core\Auth;
@@ -20,6 +22,39 @@ class SayfalarController extends AdminController
         $this->model = new SayfaModel();
     }
 
+    /** Aktif diller (kod, ad, varsayilan) */
+    private function getDiller(): array
+    {
+        $pdo = Database::baglanti();
+        $q = $pdo->query("SELECT kod, ad, varsayilan FROM diller WHERE aktif=1 ORDER BY sira ASC, kod ASC");
+        return $q->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Başlık/özet/içerikten meta alanları türetir. */
+    private function deriveMeta(string $baslik = '', string $ozet = '', string $icerik = ''): array
+    {
+        $mb = $baslik;
+        $plain = trim(preg_replace('~\s+~', ' ', strip_tags($ozet !== '' ? $ozet : $icerik)));
+        $ma = mb_substr($plain, 0, 160);
+        return [$mb, $ma];
+    }
+
+    /** sayfa_ceviri’den dil=>satır şeklinde sözlük */
+    private function getSayfaCeviriler(int $sayfaId): array
+    {
+        if ($sayfaId <= 0) return [];
+        $pdo = Database::baglanti();
+        $st = $pdo->prepare("SELECT * FROM sayfa_ceviri WHERE sayfa_id = ?");
+        $st->execute([$sayfaId]);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $map  = [];
+        foreach ($rows as $r) {
+            $map[$r['dil_kod']] = $r;
+        }
+        return $map;
+    }
+
+
     // GET /admin/sayfalar?q=&p=&g=agac
     // app/Controllers/SayfalarController.php  içinde
     public function index(): string
@@ -30,33 +65,46 @@ class SayfalarController extends AdminController
         $ofset = ($p - 1) * $limit;
 
         // Sadece silinmeyenler
-        $where  = "WHERE silindi = 0";
+        $where  = "WHERE s.silindi = 0";
         $params = [];
 
         if ($q !== '') {
-            $where .= " AND (baslik LIKE :q OR slug LIKE :q OR ozet LIKE :q)";
+            $where .= " AND (s.baslik LIKE :q OR s.slug LIKE :q OR s.ozet LIKE :q)";
             $params[':q'] = "%{$q}%";
         }
         $durum = trim((string)($_GET['durum'] ?? ''));
         if ($durum === 'yayinda' || $durum === 'taslak') {
-            $where .= " AND durum = :durum";
+            $where .= " AND s.durum = :durum";
             $params[':durum'] = $durum;
         }
         // Toplam kayıt
-        $st = DB::pdo()->prepare("SELECT COUNT(*) FROM sayfalar $where");
+        $st = DB::pdo()->prepare("SELECT COUNT(*) FROM sayfalar s $where");
         foreach ($params as $k=>$v) $st->bindValue($k,$v,\PDO::PARAM_STR);
         $st->execute();
         $toplamKayit = (int)$st->fetchColumn();
 
         // Liste  (NOT: $where burada da kullanılmalı)
-        $sql = "SELECT id, baslik, slug, durum, ozet, icerik,
-                       meta_baslik, meta_aciklama,
-                       olusturma_tarihi, guncelleme_tarihi,
-                       COALESCE(guncelleme_tarihi, olusturma_tarihi) AS son_degisim
-                FROM sayfalar
+        $sql = "SELECT
+                    s.id,
+                    -- TR çevirisi varsa onu, yoksa ana tabloyu göster
+                    COALESCE(sc.baslik,        s.baslik)        AS baslik_goster,
+                    COALESCE(sc.slug,          s.slug)          AS slug_goster,
+                    s.durum,
+                    COALESCE(sc.ozet,          s.ozet)          AS ozet_goster,
+                    COALESCE(sc.meta_baslik,   s.meta_baslik)   AS meta_baslik_goster,
+                    COALESCE(sc.meta_aciklama, s.meta_aciklama) AS meta_aciklama_goster,
+                    s.icerik,
+                    s.olusturma_tarihi,
+                    s.guncelleme_tarihi,
+                    COALESCE(s.guncelleme_tarihi, s.olusturma_tarihi) AS son_degisim
+                FROM sayfalar s
+                LEFT JOIN diller d ON d.varsayilan = 1
+                LEFT JOIN sayfa_ceviri sc
+                       ON sc.sayfa_id = s.id AND sc.dil_kod = d.kod
                 $where
-                ORDER BY id DESC
+                ORDER BY s.id DESC
                 LIMIT :l OFFSET :o";
+
         $st = DB::pdo()->prepare($sql);
         foreach ($params as $k=>$v) $st->bindValue($k,$v,\PDO::PARAM_STR);
         $st->bindValue(':l',$limit,\PDO::PARAM_INT);
@@ -136,8 +184,49 @@ class SayfalarController extends AdminController
     // GET /admin/sayfalar/olustur
     public function olustur(): void
     {
-        $gorunumYolu = __DIR__ . '/../views/admin/sayfalar/form.php';
-        require __DIR__ . '/../views/admin/sablon.php';
+        $pdo     = \App\Core\DB::pdo();
+        $diller  = $pdo->query("SELECT kod, ad, aktif, varsayilan FROM diller WHERE aktif=1 ORDER BY sira, kod")->fetchAll(\PDO::FETCH_ASSOC);
+        $ceviriler = []; // oluştur ekranında boş
+
+        // --- Dil sekmeleri ve çeviriler ---
+        $pdo = \App\Core\DB::pdo();
+
+        // Aktif diller
+        $diller = $pdo->query("SELECT kod, ad, varsayilan FROM diller WHERE aktif=1 ORDER BY sira, kod")
+                      ->fetchAll(\PDO::FETCH_ASSOC);
+
+        // Bu sayfanın çevirileri
+        $ceviriler = [];
+        $st = $pdo->prepare("SELECT * FROM sayfa_ceviri WHERE sayfa_id = ?");
+        $st->execute([(int)($sayfa['id'] ?? 0)]);
+        foreach ($st->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+            $ceviriler[$r['dil_kod']] = $r;
+        }
+
+        // Varsayılan dil kodunu bul
+        $def = 'tr';
+        foreach ($diller as $d) {
+            if (!empty($d['varsayilan'])) { $def = $d['kod']; break; }
+        }
+
+        // Çeviri yoksa varsayılan dil için sayfalar tablosundan doldur (geriye dönük uyum)
+        if (!isset($ceviriler[$def])) {
+            $ceviriler[$def] = [
+                'sayfa_id'       => (int)($sayfa['id'] ?? 0),
+                'dil_kod'        => $def,
+                'baslik'         => $sayfa['baslik']        ?? '',
+                'slug'           => $sayfa['slug']          ?? '',
+                'icerik'         => $sayfa['icerik']        ?? '',
+                'ozet'           => $sayfa['ozet']          ?? '',
+                'meta_baslik'    => $sayfa['meta_baslik']   ?? '',
+                'meta_aciklama'  => $sayfa['meta_aciklama'] ?? '',
+            ];
+        }        
+
+        // View değişkenleri bu scope'ta zaten mevcut.
+        // Doğru yol: app/Views/...
+        $gorunumYolu = __DIR__ . '/../Views/admin/sayfalar/form.php';
+        require __DIR__ . '/../Views/admin/sablon.php';     
     }
 
     public function kaydet(): void
@@ -161,6 +250,18 @@ class SayfalarController extends AdminController
         $durum    = in_array($val, $yaySet, true) ? 'yayinda' : 'taslak';
         $meta_baslik   = trim($_POST['meta_baslik'] ?? '');
         $meta_aciklama = trim($_POST['meta_aciklama'] ?? '');
+
+        // -- Çeviri alanlarından geri doldurma (varsayılan dil boşsa başka dil) --
+        $ceviriAll = $_POST['ceviri'] ?? [];
+        if ($baslik === '' || $slugInput === '' || $ozet === '' || $icerik === '') {
+            foreach ($ceviriAll as $dk => $r) {
+                $rB = trim($r['baslik'] ?? '');
+                if ($baslik === '' && $rB !== '') $baslik = $rB;
+                if ($slugInput === '' && $rB !== '') $slugInput = trim($r['slug'] ?? '') ?: slugify($rB);
+                if ($ozet === '' && !empty($r['ozet'] ?? ''))   $ozet   = trim($r['ozet']);
+                if ($icerik === '' && !empty($r['icerik'] ?? '')) $icerik = (string)$r['icerik'];
+            }
+        }
 
         // META varsayılanları
         if ($meta_baslik === '' && $baslik !== '') {
@@ -244,6 +345,72 @@ class SayfalarController extends AdminController
             ':meta_aciklama'=> $meta_aciklama,
         ]);
 
+        $id = (int)DB::pdo()->lastInsertId();
+
+        // Çeviri verileri: ceviri[TR|EN|...][baslik|slug|icerik|ozet|meta_baslik|meta_aciklama]
+        $ceviri = $_POST['ceviri'] ?? [];
+        if (!empty($ceviri)) {
+            $pdo = \App\Core\DB::pdo();
+
+            // Dil başına slug benzersizleştirici
+            $uniq = function(string $lang, string $slug) use ($pdo, $id) {
+                $base = slugify($slug);
+                if ($base === '') $base = 'sayfa';
+                $i = 1; $s = $base;
+                while (true) {
+                    $q = $pdo->prepare("SELECT 1 FROM sayfa_ceviri WHERE dil_kod = :d AND slug = :s AND sayfa_id <> :id LIMIT 1");
+                    $q->execute([':d'=>$lang, ':s'=>$s, ':id'=>(int)$id]);
+                    if (!$q->fetchColumn()) return $s;
+                    $i++; $s = $base.'-'.$i;
+                }
+            };
+
+            $ins = $pdo->prepare("
+                INSERT INTO sayfa_ceviri (sayfa_id, dil_kod, baslik, slug, icerik, ozet, meta_baslik, meta_aciklama)
+                VALUES (:sid, :dk, :baslik, :slug, :icerik, :ozet, :mb, :ma)
+                ON DUPLICATE KEY UPDATE
+                  baslik = VALUES(baslik),
+                  slug   = VALUES(slug),
+                  icerik = VALUES(icerik),
+                  ozet   = VALUES(ozet),
+                  meta_baslik = VALUES(meta_baslik),
+                  meta_aciklama = VALUES(meta_aciklama)
+            ");
+
+            foreach ($ceviri as $dk => $r) {
+                $b  = trim((string)($r['baslik'] ?? ''));
+                $s2 = trim((string)($r['slug']   ?? ''));
+                $ic = (string)($r['icerik'] ?? '');
+                $o  = trim((string)($r['ozet'] ?? ''));
+                $mb = trim((string)($r['meta_baslik'] ?? ''));
+                $ma = trim((string)($r['meta_aciklama'] ?? ''));
+
+                // tamamen boş dil satırlarını atla
+                if ($b === '' && $ic === '' && $o === '') continue;
+
+                if ($s2 === '') $s2 = ($b !== '') ? slugify($b) : 'sayfa';
+                $s2 = $uniq(strtolower($dk), $s2);
+
+                // meta otomatik doldurma
+                if ($mb === '' && $b !== '')  $mb = rtrim(mb_strimwidth($b, 0, 60, '…', 'UTF-8'));
+                if ($ma === '') {
+                    $plain = trim(preg_replace('~\s+~', ' ', strip_tags($o !== '' ? $o : $ic)));
+                    if ($plain !== '') $ma = rtrim(mb_strimwidth($plain, 0, 160, '…', 'UTF-8'));
+                }
+
+                $ins->execute([
+                    ':sid'   => (int)$id,
+                    ':dk'    => strtolower($dk),
+                    ':baslik'=> $b,
+                    ':slug'  => $s2,
+                    ':icerik'=> $ic !== '' ? $ic : null,
+                    ':ozet'  => $o  !== '' ? $o  : null,
+                    ':mb'    => $mb !== '' ? $mb : null,
+                    ':ma'    => $ma !== '' ? $ma : null,
+                ]);
+            }
+        }
+
         $_SESSION[$ok ? 'mesaj' : 'hata'] = $ok ? 'Sayfa oluşturuldu.' : 'Kayıt sırasında bir hata oluştu.';
         header('Location: ' . BASE_URL . '/admin/sayfalar'); exit;
     }
@@ -278,6 +445,8 @@ class SayfalarController extends AdminController
         $durum         = in_array((string)$durumRaw, ['1','yayinda','aktif'], true) ? 'yayinda' : 'taslak';
         $meta_baslik   = trim($_POST['meta_baslik'] ?? '');
         $meta_aciklama = trim($_POST['meta_aciklama'] ?? '');
+
+
 
         if ($baslik === '') {
             $_SESSION['hata'] = 'Başlık zorunludur.';
@@ -360,6 +529,67 @@ class SayfalarController extends AdminController
             }
         }       
 
+        // Çeviriler
+        $ceviri = $_POST['ceviri'] ?? [];
+        if (!empty($ceviri)) {
+            $pdo = \App\Core\DB::pdo();
+
+            $uniq = function(string $lang, string $slug) use ($pdo, $id) {
+                $base = slugify($slug);
+                if ($base === '') $base = 'sayfa';
+                $i = 1; $s = $base;
+                while (true) {
+                    $q = $pdo->prepare("SELECT 1 FROM sayfa_ceviri WHERE dil_kod = :d AND slug = :s AND sayfa_id <> :id LIMIT 1");
+                    $q->execute([':d'=>$lang, ':s'=>$s, ':id'=>(int)$id]);
+                    if (!$q->fetchColumn()) return $s;
+                    $i++; $s = $base.'-'.$i;
+                }
+            };
+
+            $ins = $pdo->prepare("
+                INSERT INTO sayfa_ceviri (sayfa_id, dil_kod, baslik, slug, icerik, ozet, meta_baslik, meta_aciklama)
+                VALUES (:sid, :dk, :baslik, :slug, :icerik, :ozet, :mb, :ma)
+                ON DUPLICATE KEY UPDATE
+                  baslik = VALUES(baslik),
+                  slug   = VALUES(slug),
+                  icerik = VALUES(icerik),
+                  ozet   = VALUES(ozet),
+                  meta_baslik = VALUES(meta_baslik),
+                  meta_aciklama = VALUES(meta_aciklama)
+            ");
+
+            foreach ($ceviri as $dk => $r) {
+                $b  = trim((string)($r['baslik'] ?? ''));
+                $s2 = trim((string)($r['slug']   ?? ''));
+                $ic = (string)($r['icerik'] ?? '');
+                $o  = trim((string)($r['ozet'] ?? ''));
+                $mb = trim((string)($r['meta_baslik'] ?? ''));
+                $ma = trim((string)($r['meta_aciklama'] ?? ''));
+
+                if ($b === '' && $ic === '' && $o === '') continue;
+
+                if ($s2 === '') $s2 = ($b !== '') ? slugify($b) : 'sayfa';
+                $s2 = $uniq(strtolower($dk), $s2);
+
+                if ($mb === '' && $b !== '')  $mb = rtrim(mb_strimwidth($b, 0, 60, '…', 'UTF-8'));
+                if ($ma === '') {
+                    $plain = trim(preg_replace('~\s+~', ' ', strip_tags($o !== '' ? $o : $ic)));
+                    if ($plain !== '') $ma = rtrim(mb_strimwidth($plain, 0, 160, '…', 'UTF-8'));
+                }
+
+                $ins->execute([
+                    ':sid'   => (int)$id,
+                    ':dk'    => strtolower($dk),
+                    ':baslik'=> $b,
+                    ':slug'  => $s2,
+                    ':icerik'=> $ic !== '' ? $ic : null,
+                    ':ozet'  => $o  !== '' ? $o  : null,
+                    ':mb'    => $mb !== '' ? $mb : null,
+                    ':ma'    => $ma !== '' ? $ma : null,
+                ]);
+            }
+        }
+
         $_SESSION[$ok ? 'mesaj' : 'hata'] = $ok ? 'Sayfa güncellendi.' : 'Güncelleme sırasında bir hata oluştu.';
         header('Location: ' . BASE_URL . '/admin/sayfalar'); exit;
     }
@@ -427,8 +657,23 @@ class SayfalarController extends AdminController
             $this->jsonErr('Sayfa bulunamadı', 'NOT_FOUND', [], 404); return;
         }
 
-            $gorunumYolu = __DIR__ . '/../views/admin/sayfalar/form.php';
-            require __DIR__ . '/../views/admin/sablon.php';
+            // Aktif diller + mevcut çeviriler
+            $pdo     = \App\Core\DB::pdo();
+            $diller  = $pdo->query("SELECT kod, ad, aktif, varsayilan FROM diller WHERE aktif=1 ORDER BY sira, kod")->fetchAll(\PDO::FETCH_ASSOC);
+
+            $ceviriler = [];
+            if (!empty($sayfa['id'])) {
+                $st = $pdo->prepare("SELECT * FROM sayfa_ceviri WHERE sayfa_id = ?");
+                $st->execute([$sayfa['id']]);
+                foreach ($st->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+                    $ceviriler[$r['dil_kod']] = $r;
+                }
+            }
+
+            // View değişkenleri ( $sayfa, $diller, $ceviriler ) bu scope'ta hazır.
+            // Doğru yol: app/Views/...
+            $gorunumYolu = __DIR__ . '/../Views/admin/sayfalar/form.php';
+            require __DIR__ . '/../Views/admin/sablon.php';         
     }
 
     // POST /admin/sayfalar/toplu-durum  (ids[], durum='aktif'|'taslak')
@@ -495,35 +740,38 @@ class SayfalarController extends AdminController
             return $this->jsonErr('Güvenlik doğrulaması başarısız.', 'CSRF_RED', [], 403);
         }
 
-        $id   = (int)($_POST['id'] ?? 0);            // düzenle sayfasında kendi kaydını hariç tutmak için
-        $slug = trim((string)($_POST['slug'] ?? ''));
+        $dil   = strtolower(trim($_POST['dil_kod'] ?? ($_POST['dil'] ?? '')));
+        $slugI = trim((string)($_POST['slug'] ?? ''));
+        $haric = (int)($_POST['id'] ?? ($_POST['haric_id'] ?? 0));
 
-        if ($slug === '') {
-            return $this->jsonOk(['uygun' => false, 'mesaj' => 'Slug boş']);
+        if ($dil === '' || $slugI === '') {
+            return $this->jsonErr('Eksik parametre.');
         }
 
-        // Şekil kontrolü
-        if (!preg_match('~^[a-z0-9]+(?:-[a-z0-9]+)*$~', $slug)) {
-            return $this->jsonOk(['uygun' => false, 'mesaj' => 'Geçersiz slug']);
-        }
+        // normalize et
+        $slug = slugify($slugI);
 
-        // Rezerv kontrol (helpers/slug_helper.php)
-        if (function_exists('slug_is_reserved') && slug_is_reserved($slug)) {
-            return $this->jsonOk(['uygun' => false, 'mesaj' => 'Bu slug rezerve, lütfen değiştirin']);
-        }
-
-        // Eşsizlik
+        // benzersiz yap: (dil_kod, slug) eşleşmesini kontrol et
         $pdo = \App\Core\DB::pdo();
-        if ($id > 0) {
-            $s = $pdo->prepare("SELECT 1 FROM sayfalar WHERE slug = :slug AND silindi = 0 AND id <> :id LIMIT 1");
-            $s->execute([':slug'=>$slug, ':id'=>$id]);
-        } else {
-            $s = $pdo->prepare("SELECT 1 FROM sayfalar WHERE slug = :slug AND silindi = 0 LIMIT 1");
-            $s->execute([':slug'=>$slug]);
+        $base = $slug;
+        $i = 1;
+        while (true) {
+            $sql = "SELECT 1 FROM sayfa_ceviri WHERE dil_kod = :d AND slug = :s"
+                 . ($haric > 0 ? " AND sayfa_id <> :id" : "")
+                 . " LIMIT 1";
+            $st  = $pdo->prepare($sql);
+            $st->bindValue(':d', $dil);
+            $st->bindValue(':s', $slug);
+            if ($haric > 0) $st->bindValue(':id', $haric, \PDO::PARAM_INT);
+            $st->execute();
+            if (!$st->fetchColumn()) break;          // uygun
+            $i++; $slug = $base . '-' . $i;
         }
-        $varMi = (bool)$s->fetchColumn();
 
-        return $this->jsonOk(['uygun' => !$varMi]);
+        return $this->jsonOk([
+            'mesaj' => 'OK',
+            'veri'  => ['slug' => $slug]
+        ]);
     }
 
     // GET /admin/sayfalar/cop

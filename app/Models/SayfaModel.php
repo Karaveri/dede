@@ -102,21 +102,21 @@ public function slugVarMi(string $slug, int $haricId = 0): bool
     }
 
     // Sayfalarda durum 'aktif' | 'taslak' STRING tutulsun (yonetim.js bunu da anlıyor)
-public function durumDegistir(int $id, $deger) {
-    $hedef = in_array($deger, ['aktif','taslak'], true) ? (string)$deger : ((int)$deger ? 'aktif':'taslak');
-    $st = \App\Core\DB::pdo()->prepare("UPDATE sayfalar SET durum = :d WHERE id = :i");
-    $st->execute([':d'=>$hedef, ':i'=>$id]);
-    return $hedef; // 'aktif'|'taslak'
-}
+    public function durumDegistir(int $id, $deger) {
+        $hedef = in_array($deger, ['aktif','taslak'], true) ? (string)$deger : ((int)$deger ? 'aktif':'taslak');
+        $st = \App\Core\DB::pdo()->prepare("UPDATE sayfalar SET durum = :d WHERE id = :i");
+        $st->execute([':d'=>$hedef, ':i'=>$id]);
+        return $hedef; // 'aktif'|'taslak'
+    }
 
-public function topluDurum(array $ids, $deger) {
-    if (!$ids) return 'taslak';
-    $hedef = in_array($deger, ['aktif','taslak'], true) ? (string)$deger : ((int)$deger ? 'aktif':'taslak');
-    $in = implode(',', array_fill(0, count($ids), '?'));
-    $st = \App\Core\DB::pdo()->prepare("UPDATE sayfalar SET durum = ? WHERE id IN ($in)");
-    $st->execute(array_merge([$hedef], $ids));
-    return $hedef;
-}
+    public function topluDurum(array $ids, $deger) {
+        if (!$ids) return 'taslak';
+        $hedef = in_array($deger, ['aktif','taslak'], true) ? (string)$deger : ((int)$deger ? 'aktif':'taslak');
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $st = \App\Core\DB::pdo()->prepare("UPDATE sayfalar SET durum = ? WHERE id IN ($in)");
+        $st->execute(array_merge([$hedef], $ids));
+        return $hedef;
+    }
 
     public function slugUygunMu(string $slug, int $haricId = 0): bool
     {
@@ -128,68 +128,114 @@ public function topluDurum(array $ids, $deger) {
         return ((int)$stmt->fetchColumn()) === 0;
     }
 
-// === Admin liste (opsiyonel durum) ===
-// $durum: 'yayinda' | 'taslak' | null (tümü)
-public function adminListe(?string $durum, int $limit, int $offset): array
-{
-    $pdo = \App\Core\DB::pdo();
-    $sql = "SELECT s.id, s.baslik, s.slug, s.durum,
-                   COALESCE(s.guncelleme_tarihi, s.updated_at, s.olusturma_tarihi, s.created_at) AS son_degisim
-            FROM sayfalar AS s
-            WHERE s.silindi = 0";
-    $params = [];
-    if ($durum !== null) { $sql .= " AND s.durum = :durum"; $params[':durum'] = $durum; }
-    $sql .= " ORDER BY s.id DESC LIMIT " . (int)$offset . ", " . (int)$limit;
+    // $durum: 'yayinda' | 'taslak' | null (tümü)
+    public function adminListe(?string $durum, int $limit, int $offset): array
+    {
+        $pdo = \App\Core\DB::pdo();
+        $sql = "SELECT s.id, s.baslik, s.slug, s.durum,
+                       COALESCE(s.guncelleme_tarihi, s.updated_at, s.olusturma_tarihi, s.created_at) AS son_degisim
+                FROM sayfalar AS s
+                WHERE s.silindi = 0";
+        $params = [];
+        if ($durum !== null) { $sql .= " AND s.durum = :durum"; $params[':durum'] = $durum; }
+        $sql .= " ORDER BY s.id DESC LIMIT " . (int)$offset . ", " . (int)$limit;
 
-    $st = $pdo->prepare($sql);
-    $st->execute($params);
-    return $st->fetchAll(\PDO::FETCH_ASSOC);
-}
+        $st = $pdo->prepare($sql);
+        $st->execute($params);
+        return $st->fetchAll(\PDO::FETCH_ASSOC);
+    }
 
-public function adminToplam(?string $durum): int
-{
-    $pdo = \App\Core\DB::pdo();
-    $sql = "SELECT COUNT(*) FROM sayfalar AS s WHERE s.silindi = 0";
-    $params = [];
-    if ($durum !== null) { $sql .= " AND s.durum = :durum"; $params[':durum'] = $durum; }
-    $st = $pdo->prepare($sql); $st->execute($params);
-    return (int)$st->fetchColumn();
-}
+    public function adminToplam(?string $durum): int
+    {
+        $pdo = \App\Core\DB::pdo();
+        $sql = "SELECT COUNT(*) FROM sayfalar AS s WHERE s.silindi = 0";
+        $params = [];
+        if ($durum !== null) { $sql .= " AND s.durum = :durum"; $params[':durum'] = $durum; }
+        $st = $pdo->prepare($sql); $st->execute($params);
+        return (int)$st->fetchColumn();
+    }
 
-// === Çöp kutusu ===
-public function copListe(int $limit, int $offset): array
-{
-    $pdo = \App\Core\DB::pdo();
-    $sql = "SELECT s.id, s.baslik, s.slug, s.durum,
-                   COALESCE(s.guncelleme_tarihi, s.updated_at, s.olusturma_tarihi, s.created_at) AS son_degisim
-            FROM sayfalar AS s
-            WHERE s.silindi = 1
-            ORDER BY s.id DESC
-            LIMIT " . (int)$offset . ", " . (int)$limit;
-    $st = $pdo->query($sql);
-    return $st->fetchAll(\PDO::FETCH_ASSOC);
-}
+    // === Çöp kutusu ===
+    public function copListe(int $limit, int $offset): array
+    {
+        $pdo = \App\Core\DB::pdo();
+        $sql = "SELECT s.id, s.baslik, s.slug, s.durum,
+                       COALESCE(s.guncelleme_tarihi, s.updated_at, s.olusturma_tarihi, s.created_at) AS son_degisim
+                FROM sayfalar AS s
+                WHERE s.silindi = 1
+                ORDER BY s.id DESC
+                LIMIT " . (int)$offset . ", " . (int)$limit;
+        $st = $pdo->query($sql);
+        return $st->fetchAll(\PDO::FETCH_ASSOC);
+    }
 
-public function copToplam(): int
-{
-    $pdo = \App\Core\DB::pdo();
-    return (int)$pdo->query("SELECT COUNT(*) FROM sayfalar AS s WHERE s.silindi = 1")->fetchColumn();
-}
+    public function copToplam(): int
+    {
+        $pdo = \App\Core\DB::pdo();
+        return (int)$pdo->query("SELECT COUNT(*) FROM sayfalar AS s WHERE s.silindi = 1")->fetchColumn();
+    }
 
-// === Public tek sayfa (slug) ===
-public function tekBySlug(string $slug): ?array
-{
-    $pdo = \App\Core\DB::pdo();
-    $sql = "SELECT s.id, s.baslik, s.slug, s.icerik, s.ozet,
-                   s.kapak_gorsel, s.meta_baslik, s.meta_aciklama,
-                   COALESCE(s.guncelleme_tarihi, s.updated_at, s.olusturma_tarihi, s.created_at) AS son_degisim
-            FROM sayfalar AS s
-            WHERE s.silindi = 0 AND s.durum = 'yayinda' AND s.slug = :slug
-            LIMIT 1";
-    $st = $pdo->prepare($sql);
-    $st->execute([':slug'=>$slug]);
-    $row = $st->fetch(\PDO::FETCH_ASSOC);
-    return $row ?: null;
-}
+    // === Public tek sayfa (slug) ===
+    public function tekBySlug(string $slug): ?array
+    {
+        $pdo = \App\Core\DB::pdo();
+        $sql = "SELECT s.id, s.baslik, s.slug, s.icerik, s.ozet,
+                       s.kapak_gorsel, s.meta_baslik, s.meta_aciklama,
+                       COALESCE(s.guncelleme_tarihi, s.updated_at, s.olusturma_tarihi, s.created_at) AS son_degisim
+                FROM sayfalar AS s
+                WHERE s.silindi = 0 AND s.durum = 'yayinda' AND s.slug = :slug
+                LIMIT 1";
+        $st = $pdo->prepare($sql);
+        $st->execute([':slug'=>$slug]);
+        $row = $st->fetch(\PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
+    /** Aktif dilleri getir */
+    public function aktifDiller(): array {
+        $pdo = \App\Core\DB::pdo();
+        return $pdo->query("SELECT kod, ad, aktif, varsayilan FROM diller WHERE aktif=1 ORDER BY sira, kod")
+                   ->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /** Bir sayfanın tüm çevirilerini getir (dil_kod=>row sözlüğü) */
+    public function ceviriler(int $sayfaId): array {
+        $pdo = \App\Core\DB::pdo();
+        $st = $pdo->prepare("SELECT * FROM sayfa_ceviri WHERE sayfa_id = ?");
+        $st->execute([$sayfaId]);
+        $map = [];
+        foreach ($st->fetchAll(\PDO::FETCH_ASSOC) as $r) $map[$r['dil_kod']] = $r;
+        return $map;
+    }
+
+    /** Upsert tek dil */
+    public function ceviriUpsert(int $sayfaId, string $dil, array $r): void {
+        $pdo   = \App\Core\DB::pdo();
+        $baslik = trim($r['baslik'] ?? '');
+        $slug   = trim($r['slug']   ?? '');
+        if ($slug === '' && $baslik !== '') $slug = slugify($baslik);
+
+        $st = $pdo->prepare("
+            INSERT INTO sayfa_ceviri (sayfa_id, dil_kod, baslik, slug, icerik, ozet, meta_baslik, meta_aciklama)
+            VALUES (:sid, :dk, :baslik, :slug, :icerik, :ozet, :mb, :ma)
+            ON DUPLICATE KEY UPDATE
+                baslik = VALUES(baslik),
+                slug   = VALUES(slug),
+                icerik = VALUES(icerik),
+                ozet   = VALUES(ozet),
+                meta_baslik = VALUES(meta_baslik),
+                meta_aciklama = VALUES(meta_aciklama)
+        ");
+        $st->execute([
+            ':sid'   => $sayfaId,
+            ':dk'    => strtolower($dil),
+            ':baslik'=> $baslik,
+            ':slug'  => $slug,
+            ':icerik'=> $r['icerik'] ?? null,
+            ':ozet'  => $r['ozet'] ?? null,
+            ':mb'    => $r['meta_baslik'] ?? null,
+            ':ma'    => $r['meta_aciklama'] ?? null,
+        ]);
+    }
 
 }

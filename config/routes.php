@@ -5,6 +5,7 @@ use App\Controllers\YonetimDenetleyici;
 use App\Controllers\SayfalarController;
 use App\Controllers\KategorilerDenetleyici;
 use App\Controllers\MedyaController;
+use App\Controllers\DillerDenetleyici;
 
 // ---- Giriş / Çıkış 
 Router::get('/', function () {
@@ -14,12 +15,20 @@ Router::get('/', function () {
 //Router::get('/', function () { header('Location: '.BASE_URL.'/admin/giris'); return ''; });
 
 
-Router::get('/admin/giris', [GirisController::class, 'form']);              // <-- middleware YOK
+Router::get('/admin/giris',  [GirisController::class, 'form']);              // <-- middleware YOK
 Router::post('/admin/giris', [GirisController::class, 'post'], ['csrf','rate:5,600']); // <-- sadece POST'ta rate
+Router::get('/admin/cikis',  [GirisController::class, 'cikis'], ['auth']); 
+Router::get('/admin',        [YonetimDenetleyici::class, 'ana'], ['auth']); 
 
 
-Router::get('/admin/cikis', [GirisController::class, 'cikis'], ['auth']); 
-Router::get('/admin',       [YonetimDenetleyici::class, 'ana'], ['auth']); 
+// Diller (admin)
+Router::get ('/admin/diller',                                   [DillerDenetleyici::class, 'liste'],   ['auth']);
+Router::get ('/admin/diller/yeni',                              [DillerDenetleyici::class, 'form'],    ['auth']);
+Router::get ('/admin/diller/duzenle',                           [DillerDenetleyici::class,'form'], ['auth']);
+Router::post('/admin/diller/kaydet',                            [DillerDenetleyici::class, 'kaydet'],  ['auth','csrf','rate']);
+Router::post('/admin/diller/sil',                               [DillerDenetleyici::class, 'sil'],     ['auth','csrf','rate']);
+Router::get ('/admin/api/diller',                               [DillerDenetleyici::class, 'apiListe'],['auth']);
+// Diller (admin) — END
 
 // ---- Sayfalar
 Router::get ('/admin/sayfalar',                    [SayfalarController::class, 'index'],     ['auth']);
@@ -38,9 +47,9 @@ Router::post('/admin/sayfalar/yok-et',  	       [SayfalarController::class, 'yok
 Router::post('/admin/sayfalar/durum-tekil',        [SayfalarController::class, 'durum'], ['auth','csrf','rate:120,60']);
 Router::post('/admin/sayfalar/geri-al-toplu',      [SayfalarController::class, 'geriAl'],    ['auth','csrf','rate:60,60']); // aynı metoda düşer
 Router::get ('/admin/sayfalar/cop',                [SayfalarController::class, 'cop'],       ['auth']);
-Router::get('/admin/sayfalar/cop/say',             [SayfalarController::class, 'copSayJson'],    ['auth']);
 Router::post('/admin/sayfalar/cop/geri-al',        [SayfalarController::class, 'geriAl'], ['auth','csrf','rate:60,60']);
 Router::post('/admin/sayfalar/cop/kalici-sil',     [SayfalarController::class, 'yokEt'],  ['auth','csrf','rate:30,60']);
+Router::get('/admin/sayfalar/cop/say',             [SayfalarController::class, 'copSayJson'],    ['auth']);
 
 // ---- Kategoriler
 Router::get ('/admin/kategoriler',                 [KategorilerDenetleyici::class, 'index'],     ['auth']);

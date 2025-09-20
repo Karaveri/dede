@@ -1157,3 +1157,122 @@ document.getElementById('bulkTagForm')?.addEventListener('submit', async (e) => 
   });
 
 })();
+
+// === ÇÖP İŞLEMLERİ: Geri Al / Kalıcı Sil (tekil + toplu) ===
+(function () {
+  const getCsrf = () =>
+    document.querySelector('meta[name="csrf-token"]')?.content ||
+    document.querySelector('meta[name="csrf"]')?.content || '';
+
+  function toastOrAlert(msg) {
+    // sende toast container var; yoksa alert'e düşer
+    try {
+      if (window.showToast) return window.showToast(msg);
+      if (window.toast) return window.toast(msg);
+    } catch (_) {}
+    alert(msg);
+  }
+
+  function openConfirm(message) {
+    const modalEl = document.getElementById('confirmModal');
+    if (!modalEl) return Promise.resolve(window.confirm(message));
+    return new Promise((resolve) => {
+      const msgEl = document.getElementById('confirmModalMsg');
+      if (msgEl) msgEl.textContent = message;
+      const okBtn = document.getElementById('confirmModalOk');
+      const bs = bootstrap.Modal.getOrCreateInstance(modalEl);
+      const onOk = () => { okBtn.removeEventListener('click', onOk); resolve(true); bs.hide(); };
+      const onHide = () => { okBtn.removeEventListener('click', onOk); modalEl.removeEventListener('hidden.bs.modal', onHide); resolve(false); };
+      okBtn.addEventListener('click', onOk, { once: true });
+      modalEl.addEventListener('hidden.bs.modal', onHide, { once: true });
+      bs.show();
+    });
+  }
+
+  async function postJSON(url, data) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'X-CSRF-TOKEN': getCsrf(),
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'X-Requested-With': 'fetch'
+      },
+      credentials: 'same-origin',
+      body: new URLSearchParams(data)
+    });
+    let json = null;
+    try { json = await res.json(); } catch {}
+    return { ok: res.ok, status: res.status, json };
+  }
+
+  function removeRowsByIds(ids) {
+    ids.forEach(id => {
+      const tr = document.querySelector(`tr[data-id="${id}"]`);
+      if (tr) tr.remove();
+    });
+  }
+
+  // TOPLU: .js-trash (data-url zorunlu)
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.js-trash');
+    if (!btn) return;
+
+    e.preventDefault();
+
+    const url = btn.getAttribute('data-url');
+    if (!url) { toastOrAlert('İşlem URL’i bulunamadı.'); return; }
+
+    // Seçilenleri topla (hem .sec-kayit hem name="ids[]")
+    const ids = Array.from(document.querySelectorAll('.sec-kayit:checked, input[name="ids[]"]:checked'))
+      .map(i => parseInt(i.value, 10))
+      .filter(Boolean);
+
+    if (ids.length === 0) { toastOrAlert('Seçim yok.'); return; }
+
+    const isPurge = /kalici|yok[-_ ]?et/i.test(url);
+    const ok = await openConfirm(isPurge ? 'Seçilenler KALICI olarak silinecek. Onaylıyor musunuz?' : 'Seçilenler geri yüklenecek. Onaylıyor musunuz?');
+    if (!ok) return;
+
+    const { ok: okResp, json } = await postJSON(url, { 'ids[]': ids });
+    if (okResp && (!json || json.ok !== false)) {
+      removeRowsByIds(ids);
+      if (!document.querySelector('tbody tr')) location.reload();
+    } else {
+      toastOrAlert((json && json.mesaj) || 'İşlem başarısız.');
+    }
+  });
+
+  // TEKİL: .js-trash-tekli (data-id, data-url)
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.js-trash-tekli');
+    if (!btn) return;
+
+    e.preventDefault();
+
+    const url = btn.getAttribute('data-url');
+    const id  = parseInt(btn.getAttribute('data-id'), 10);
+    const ad  = btn.getAttribute('data-name') || '';
+    if (!url || !id) { toastOrAlert('İşlem parametresi eksik.'); return; }
+
+    const isPurge = /kalici|yok[-_ ]?et/i.test(url);
+    const ok = await openConfirm(isPurge ? `“${ad || ('#'+id)}” kalıcı olarak silinecek. Onaylıyor musunuz?`
+                                         : `“${ad || ('#'+id)}” geri yüklenecek. Onaylıyor musunuz?`);
+    if (!ok) return;
+
+    const { ok: okResp, json } = await postJSON(url, { id });
+    if (okResp && (!json || json.ok !== false)) {
+      removeRowsByIds([id]);
+      if (!document.querySelector('tbody tr')) location.reload();
+    } else {
+      toastOrAlert((json && json.mesaj) || 'İşlem başarısız.');
+    }
+  });
+
+  // Tümünü seç (#secTum varsa)
+  document.addEventListener('change', (e) => {
+    const all = e.target.closest('#secTum');
+    if (!all) return;
+    const val = !!all.checked;
+    document.querySelectorAll('.sec-kayit, input[name="ids[]"]').forEach(ch => ch.checked = val);
+  });
+})();

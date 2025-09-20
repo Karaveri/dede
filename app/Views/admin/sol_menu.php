@@ -18,6 +18,7 @@ $aktif = function (string $route, bool $exact = false) use ($here): string {
   <a href="<?= BASE_URL ?>/admin/yazilar" class="list-group-item list-group-item-action<?= $aktif('/admin/yazilar') ?>">Yazılar</a>
   <a href="<?= BASE_URL ?>/admin/kategoriler" class="list-group-item list-group-item-action<?= $aktif('/admin/kategoriler') ?>">Kategoriler</a>
   <a href="<?= BASE_URL ?>/admin/yonlendirmeler" class="list-group-item list-group-item-action<?= $aktif('/admin/yonlendirmeler') ?>">Yönlendirmeler</a>
+  <a href="<?= BASE_URL ?>/admin/diller" class="list-group-item list-group-item-action<?= $aktif('/admin/diller') ?>">Diller</a>
   <a href="<?= BASE_URL ?>/admin/medya" class="list-group-item list-group-item-action<?= $aktif('/admin/medya') ?>">Medya</a>
   <a href="<?= BASE_URL ?>/admin/uyeler" class="list-group-item list-group-item-action<?= $aktif('/admin/uyeler') ?>">Üyeler</a>
 </div>  <!-- 🔚 list-group burada kapanıyor -->

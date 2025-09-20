@@ -55,11 +55,11 @@ $copMod = (($mod ?? '') === 'cop')
       <?php foreach (($sayfalar ?? []) as $s): ?>
         <?php
           $id     = (int)($s['id'] ?? 0);
-          $baslik = htmlspecialchars($s['baslik'] ?? '', ENT_QUOTES, 'UTF-8');
-          $slug   = htmlspecialchars($s['slug']   ?? '', ENT_QUOTES, 'UTF-8');
+          $baslik = htmlspecialchars($s['baslik_goster'] ?? $s['baslik'] ?? '', ENT_QUOTES, 'UTF-8');
+          $slug   = htmlspecialchars($s['slug_goster']   ?? $s['slug']   ?? '', ENT_QUOTES, 'UTF-8');
 
           // Özet: HTML temizle + 160 karakterde kırp + title'a tam metni koy
-          $__ozetTam  = (string)($s['ozet'] ?? '');
+          $__ozetTam  = (string)($s['ozet_goster'] ?? $s['ozet'] ?? '');
           $__ozetKisa = mb_strimwidth(strip_tags($__ozetTam), 0, 40, '…', 'UTF-8');
           $__ozetHTML = htmlspecialchars($__ozetKisa, ENT_QUOTES, 'UTF-8');
           $__ozetTTL  = htmlspecialchars(trim($__ozetTam), ENT_QUOTES, 'UTF-8');
@@ -75,22 +75,24 @@ $copMod = (($mod ?? '') === 'cop')
           <td><code><?= $slug ?></code></td>
 
           <?php
-          // --- SEO rozetini hesapla ---
-          // Otomatik kurallar (Aynısı controller'da da var)
-          $autoTitle = $s['baslik'] !== '' ? rtrim(mb_strimwidth($s['baslik'], 0, 60, '…', 'UTF-8')) : '';
-          $kaynak    = ($s['ozet'] ?? '') !== '' ? $s['ozet'] : strip_tags($s['icerik'] ?? '');
+          // --- SEO rozetini hesapla (çeviri öncelikli) ---
+          $autoTitle = ($s['baslik_goster'] ?? $s['baslik'] ?? '') !== '' ? rtrim(mb_strimwidth(($s['baslik_goster'] ?? $s['baslik']), 0, 60, '…', 'UTF-8')): '';
+          $kaynak    = ($s['ozet_goster']   ?? $s['ozet']   ?? '') !== '' ? ($s['ozet_goster'] ?? $s['ozet']) : strip_tags((string)($s['icerik'] ?? ''));
           $autoDesc  = $kaynak !== '' ? rtrim(mb_strimwidth($kaynak, 0, 160, '…', 'UTF-8')) : '';
 
-          $hasTitle  = isset($s['meta_baslik'])   && $s['meta_baslik']   !== '';
-          $hasDesc   = isset($s['meta_aciklama']) && $s['meta_aciklama'] !== '';
+          $mb = trim((string)($s['meta_baslik_goster']   ?? $s['meta_baslik']   ?? ''));
+          $ma = trim((string)($s['meta_aciklama_goster'] ?? $s['meta_aciklama'] ?? ''));
+
+          $hasTitle = $mb !== '';
+          $hasDesc  = $ma !== '';
 
           // Karşılaştırmalar
-          $isAutoTitle = $hasTitle && ($s['meta_baslik'] === $autoTitle);
-          $isAutoDesc  = $hasDesc  && ($s['meta_aciklama'] === $autoDesc);
+          $isAutoTitle = $hasTitle && ($mb === $autoTitle);
+          $isAutoDesc  = $hasDesc  && ($ma === $autoDesc);
 
           $seoBadge = 'Otomatik';
           $seoClass = 'badge bg-secondary';
-          $seoTitle = "Başlık: ".mb_strlen($s['meta_baslik'] ?? '', 'UTF-8')."c · Açıklama: ".mb_strlen($s['meta_aciklama'] ?? '', 'UTF-8')."c";
+          $seoTitle = "Başlık: ".mb_strlen($mb, 'UTF-8')."c · Açıklama: ".mb_strlen($ma, 'UTF-8')."c";
 
           if ($hasTitle || $hasDesc) {
               if (!$isAutoTitle && !$isAutoDesc) {
@@ -101,16 +103,15 @@ $copMod = (($mod ?? '') === 'cop')
                   $seoClass = 'badge bg-info text-dark';
               }
           }
-            // >>> Buraya kalite uyarısı eklenecek <<<
-            $warn = '';
-            $lenT = mb_strlen($s['meta_baslik'] ?? '', 'UTF-8');
-            $lenD = mb_strlen($s['meta_aciklama'] ?? '', 'UTF-8');
-            if ($lenD > 160 || $lenT > 60) { $warn = ' ⚠︎'; }
-            elseif ($lenD < 30) { $warn = ' ⓘ'; } // çok kısa
-            $seoBadge .= $warn;
+          // kalite uyarısı
+          $warn = '';
+          $lenT = mb_strlen($mb, 'UTF-8');
+          $lenD = mb_strlen($ma, 'UTF-8');
+          if ($lenD > 160 || $lenT > 60) { $warn = ' ⚠︎'; }
+          elseif ($lenD < 30 && ($lenD > 0 || $lenT > 0)) { $warn = ' ⓘ'; }
+          $seoBadge .= $warn;
           ?>
           <td><span class="<?= $seoClass ?>" title="<?= htmlspecialchars($seoTitle, ENT_QUOTES, 'UTF-8') ?>"><?= $seoBadge ?></span></td>
-          
           <td class="ozet-cell" title="<?= $__ozetTTL ?>"><?= $__ozetHTML ?></td>
 
           <td>
