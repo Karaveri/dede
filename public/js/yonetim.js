@@ -786,16 +786,22 @@ document.addEventListener('click', (e) => {
   modal.show();
 });
 
-
-// === TEK ve KESİN durum toggle handler ===
+// === TEK YETKİLİ durum toggle handler (çakışma/yarışı engelle) ===
 document.addEventListener('click', async (e) => {
+  // Sadece /admin/sayfalar sayfalarında çalış
+  if (!/\/admin\/sayfalar(\/|$)/.test(location.pathname)) return;
+
   const btn = e.target.closest('.js-durum-btn');
   if (!btn) return;
+
   e.preventDefault();
+  e.stopPropagation();
+  if (btn.dataset.busy === '1') return;
+  btn.dataset.busy = '1';
 
   const url = btn.dataset.url;
-  const id  = btn.dataset.id;
-  if (!url || !id) return;
+  const id  = btn.dataset.id || btn.closest('tr[data-id]')?.dataset.id;
+  if (!url || !id) { btn.dataset.busy = '0'; return; }
 
   // İstek gönderici (FormData + JSON bekler)
   async function postFD(u, obj){
@@ -818,21 +824,26 @@ document.addEventListener('click', async (e) => {
     const res = await postFD(url, { id });
     if (!res?.ok) throw new Error(res?.mesaj || 'Güncellenemedi');
 
-    // Aktif mi?
+    // Sunucudan kesin durum
     const s = String(res.durum_str ?? '').toLowerCase();
     const aktif = Number(res.durum) === 1 || s === 'aktif' || s === 'yayinda' || s === 'yayında';
 
-    // Mod metni: sayfalar → Taslak, kategoriler → Pasif
+    // Sayfalar → 'Taslak', Kategoriler → 'Pasif'
     const offText = url.includes('/sayfalar/') ? 'Taslak' : 'Pasif';
 
-    btn.classList.toggle('btn-success',  aktif);
-    btn.classList.toggle('btn-secondary', !aktif);
+    // Önce her iki sınıfı da kaldır, sonra tekini ekle (çifte sınıf kalmasın)
+    btn.classList.remove('btn-success', 'btn-secondary');
+    btn.classList.add(aktif ? 'btn-success' : 'btn-secondary');
+
     btn.textContent = aktif ? 'Aktif' : offText;
+    btn.setAttribute('aria-pressed', aktif ? 'true' : 'false');
+    btn.dataset.state = aktif ? '1' : '0';
   } catch (err) {
     console.error(err);
     alert(err.message);
   } finally {
     btn.disabled = false;
+    btn.dataset.busy = '0';
   }
 });
 
@@ -1070,21 +1081,12 @@ if (bulkTagBtn) {
 const bulkTagModalEl = document.getElementById('bulkTagModal');
 const bulkTagModal   = bulkTagModalEl ? new bootstrap.Modal(bulkTagModalEl) : null;
 
-bulkTagBtn?.addEventListener('click', () => {
-  const ids = Array.from(document.querySelectorAll('.chk:checked')).map(ch => +ch.value);
-  if (!ids.length) { showToast('Seçili görsel yok.', 'warning'); return; }
-  document.getElementById('bulkTagsInput').value = '';
-  bulkTagModal?.show();
-  setTimeout(() => document.getElementById('bulkTagsInput')?.focus(), 150);
-});
-
 document.getElementById('bulkTagForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const ids  = Array.from(document.querySelectorAll('.chk:checked')).map(ch => +ch.value);
   const tags = document.getElementById('bulkTagsInput').value || '';
   if (!ids.length) { showToast('Seçili görsel yok.', 'warning'); return; }
 
-  const BASE = '<?= $BASE ?>';
   const csrf = document.querySelector('#medyaForm input[name="csrf"]')?.value
             || document.querySelector('meta[name="csrf"]')?.content || '';
 
@@ -1142,67 +1144,90 @@ document.getElementById('bulkTagForm')?.addEventListener('submit', async (e) => 
   grid.addEventListener('click', (ev) => {
     const a = ev.target.closest('.js-preview');
     if (!a) return;
-
-    // Eğer özel bir modal fonksiyonun varsa onu kullan:
-    // örn: window.openMedyaPreview({ id, src })
     const id  = a.dataset.id;
     const src = a.dataset.src || a.href;
-
-    // Varsayılan: yeni sekme (target="_blank" zaten var)
-    // Modal kullanacaksan:
-    // ev.preventDefault();
-    // if (typeof window.openMedyaPreview === 'function') {
-    //   window.openMedyaPreview({ id, src });
-    // }
   });
 
 })();
 
+
 // === ÇÖP İŞLEMLERİ: Geri Al / Kalıcı Sil (tekil + toplu) ===
 (function () {
-  const getCsrf = () =>
-    document.querySelector('meta[name="csrf-token"]')?.content ||
-    document.querySelector('meta[name="csrf"]')?.content || '';
+  // Tek merkezden CSRF al: form gizli input > global yardımcı > meta
+  function getCSRF() {
+    // global yardımcı zaten dosyanın başında tanımlı (getCsrfToken)
+    return (typeof getCsrfToken === 'function' ? getCsrfToken(document) : '') ||
+           document.getElementById('csrf')?.value ||
+           document.querySelector('meta[name="csrf-token"]')?.content ||
+           document.querySelector('meta[name="csrf"]')?.content || '';
+  }
 
   function toastOrAlert(msg) {
-    // sende toast container var; yoksa alert'e düşer
     try {
       if (window.showToast) return window.showToast(msg);
-      if (window.toast) return window.toast(msg);
-    } catch (_) {}
+      if (window.toast)     return window.toast(msg);
+    } catch(_) {}
     alert(msg);
   }
 
+  // Bootstrap varsa modal ile, yoksa window.confirm ile onay
   function openConfirm(message) {
-    const modalEl = document.getElementById('confirmModal');
-    if (!modalEl) return Promise.resolve(window.confirm(message));
+    const hasBS = !!(window.bootstrap && typeof bootstrap.Modal === 'function');
+    if (!hasBS) return Promise.resolve(window.confirm(message));
     return new Promise((resolve) => {
-      const msgEl = document.getElementById('confirmModalMsg');
-      if (msgEl) msgEl.textContent = message;
-      const okBtn = document.getElementById('confirmModalOk');
-      const bs = bootstrap.Modal.getOrCreateInstance(modalEl);
-      const onOk = () => { okBtn.removeEventListener('click', onOk); resolve(true); bs.hide(); };
-      const onHide = () => { okBtn.removeEventListener('click', onOk); modalEl.removeEventListener('hidden.bs.modal', onHide); resolve(false); };
+      let modalEl = document.getElementById('confirmModal');
+      if (!modalEl) {
+        modalEl = document.createElement('div');
+        modalEl.id = 'confirmModal';
+        modalEl.className = 'modal';
+        modalEl.innerHTML = `
+          <div class="modal-dialog"><div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">Onay</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
+            </div>
+            <div class="modal-body"><p class="m-0"></p></div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Vazgeç</button>
+              <button type="button" class="btn btn-primary" id="confirmOk">Tamam</button>
+            </div>
+          </div></div>`;
+        document.body.appendChild(modalEl);
+      }
+      modalEl.querySelector('.modal-body p').textContent = message;
+      const okBtn = modalEl.querySelector('#confirmOk');
+      const bs    = bootstrap.Modal.getOrCreateInstance(modalEl);
+      const onOk  = () => { okBtn.removeEventListener('click', onOk); resolve(true);  bs.hide(); };
+      const onHd  = () => { okBtn.removeEventListener('click', onOk); resolve(false); };
       okBtn.addEventListener('click', onOk, { once: true });
-      modalEl.addEventListener('hidden.bs.modal', onHide, { once: true });
+      modalEl.addEventListener('hidden.bs.modal', onHd, { once: true });
       bs.show();
     });
   }
 
-  async function postJSON(url, data) {
+  async function postForm(url, dataObj) {
+    const token = getCSRF();
+    const body  = new URLSearchParams();
+    for (const [k,v] of Object.entries(dataObj||{})) {
+      if (Array.isArray(v)) v.forEach(x => body.append(k, x));
+      else body.append(k, v);
+    }
+    if (token && !body.has('csrf')) body.append('csrf', token);
+
     const res = await fetch(url, {
       method: 'POST',
       headers: {
-        'X-CSRF-TOKEN': getCsrf(),
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'X-Requested-With': 'fetch'
+        'Accept': 'application/json',
+        'X-Requested-With': 'fetch',
+        'X-CSRF-Token': token, // header + body birlikte
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
       },
       credentials: 'same-origin',
-      body: new URLSearchParams(data)
+      body
     });
+
     let json = null;
     try { json = await res.json(); } catch {}
-    return { ok: res.ok, status: res.status, json };
+    return { ok: res.ok, json };
   }
 
   function removeRowsByIds(ids) {
@@ -1212,63 +1237,61 @@ document.getElementById('bulkTagForm')?.addEventListener('submit', async (e) => 
     });
   }
 
-  // TOPLU: .js-trash (data-url zorunlu)
+  // TOPLU işlemler: .js-trash
   document.addEventListener('click', async (e) => {
     const btn = e.target.closest('.js-trash');
     if (!btn) return;
-
     e.preventDefault();
 
     const url = btn.getAttribute('data-url');
     if (!url) { toastOrAlert('İşlem URL’i bulunamadı.'); return; }
 
-    // Seçilenleri topla (hem .sec-kayit hem name="ids[]")
     const ids = Array.from(document.querySelectorAll('.sec-kayit:checked, input[name="ids[]"]:checked'))
-      .map(i => parseInt(i.value, 10))
-      .filter(Boolean);
+      .map(i => parseInt(i.value, 10)).filter(Boolean);
 
     if (ids.length === 0) { toastOrAlert('Seçim yok.'); return; }
 
     const isPurge = /kalici|yok[-_ ]?et/i.test(url);
-    const ok = await openConfirm(isPurge ? 'Seçilenler KALICI olarak silinecek. Onaylıyor musunuz?' : 'Seçilenler geri yüklenecek. Onaylıyor musunuz?');
+    const ok = await openConfirm(isPurge
+      ? 'Seçilenler KALICI olarak silinecek. Onaylıyor musunuz?'
+      : 'Seçilenler geri yüklenecek. Onaylıyor musunuz?');
     if (!ok) return;
 
-    const { ok: okResp, json } = await postJSON(url, { 'ids[]': ids });
+    const { ok: okResp, json } = await postForm(url, { 'ids[]': ids });
     if (okResp && (!json || json.ok !== false)) {
       removeRowsByIds(ids);
       if (!document.querySelector('tbody tr')) location.reload();
     } else {
-      toastOrAlert((json && json.mesaj) || 'İşlem başarısız.');
+      toastOrAlert((json && (json.mesaj || json.hata)) || 'İşlem başarısız.');
     }
   });
 
-  // TEKİL: .js-trash-tekli (data-id, data-url)
+  // TEKİL işlemler: .js-trash-tekli (data-id, data-url)
   document.addEventListener('click', async (e) => {
     const btn = e.target.closest('.js-trash-tekli');
     if (!btn) return;
-
     e.preventDefault();
 
     const url = btn.getAttribute('data-url');
     const id  = parseInt(btn.getAttribute('data-id'), 10);
-    const ad  = btn.getAttribute('data-name') || '';
-    if (!url || !id) { toastOrAlert('İşlem parametresi eksik.'); return; }
+    if (!url || !id) { toastOrAlert('İşlem bilgisi eksik.'); return; }
 
     const isPurge = /kalici|yok[-_ ]?et/i.test(url);
-    const ok = await openConfirm(isPurge ? `“${ad || ('#'+id)}” kalıcı olarak silinecek. Onaylıyor musunuz?`
-                                         : `“${ad || ('#'+id)}” geri yüklenecek. Onaylıyor musunuz?`);
+    const ok = await openConfirm(isPurge
+      ? 'Kayıt KALICI olarak silinecek. Onaylıyor musunuz?'
+      : 'Kayıt geri yüklenecek. Onaylıyor musunuz?');
     if (!ok) return;
 
-    const { ok: okResp, json } = await postJSON(url, { id });
+    const { ok: okResp, json } = await postForm(url, { id });
     if (okResp && (!json || json.ok !== false)) {
       removeRowsByIds([id]);
       if (!document.querySelector('tbody tr')) location.reload();
     } else {
-      toastOrAlert((json && json.mesaj) || 'İşlem başarısız.');
+      toastOrAlert((json && (json.mesaj || json.hata)) || 'İşlem başarısız.');
     }
   });
 
-  // Tümünü seç (#secTum varsa)
+  // “Tümünü seç” (#secTum)
   document.addEventListener('change', (e) => {
     const all = e.target.closest('#secTum');
     if (!all) return;

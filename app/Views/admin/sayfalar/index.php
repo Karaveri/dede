@@ -35,7 +35,7 @@ $copMod = (($mod ?? '') === 'cop')
 <form id="sayfaForm" action="<?= $BASE ?>/admin/sayfalar/sil" method="post">
   <?= Csrf::input(); ?>
   <input type="hidden" name="id" id="hiddenSingleId" value="">
-
+  <input type="hidden" id="csrf" name="csrf" value="<?= \App\Core\Csrf::token() ?>">
   <div class="table-responsive">
     <table class="table table-sm table-striped align-middle">
       <thead>
@@ -153,15 +153,23 @@ $copMod = (($mod ?? '') === 'cop')
                 </button>
               </form>
             <?php else: ?>
-            <button type="button"
-                    class="btn btn-sm btn-success btn-geri-al js-trash-tekli"
-                    data-url="<?= $BASE ?>/admin/sayfalar/cop/geri-al"
-                    data-id="<?= $id ?>" data-name="<?= $baslik ?>">Geri Al</button>
+              <button type="button"
+                      class="btn btn-sm btn-success js-trash-tekli"
+                      data-url="<?= $BASE ?>/admin/sayfalar/geri-al"
+                      data-id="<?= $id ?>"
+                      onclick="if(!window.bootstrap){ if(!confirm('Kayıt geri alınacak, onaylıyor musunuz?')) return; 
+                               var f=this.closest('form'); var i=document.createElement('input'); i.type='hidden'; i.name='id'; i.value=<?= (int)$id ?>; f.appendChild(i); f.action='<?= $BASE ?>/admin/sayfalar/geri-al'; f.submit(); }">
+                Geri Al
+              </button>
 
-            <button type="button"
-                    class="btn btn-sm btn-outline-danger btn-yok-et js-trash-tekli"
-                    data-url="<?= $BASE ?>/admin/sayfalar/cop/kalici-sil"
-                    data-id="<?= $id ?>" data-name="<?= $baslik ?>">Kalıcı Sil</button>
+              <button type="button"
+                      class="btn btn-sm btn-outline-danger js-trash-tekli"
+                      data-url="<?= $BASE ?>/admin/sayfalar/yok-et"
+                      data-id="<?= $id ?>"
+                      onclick="if(!window.bootstrap){ if(!confirm('Kayıt KALICI olarak silinecek, onaylıyor musunuz?')) return;
+                               var f=this.closest('form'); var i=document.createElement('input'); i.type='hidden'; i.name='id'; i.value=<?= (int)$id ?>; f.appendChild(i); f.action='<?= $BASE ?>/admin/sayfalar/yok-et'; f.submit(); }">
+                Kalıcı Sil
+              </button>
             <?php endif; ?>
           </td>
         </tr>
@@ -186,12 +194,12 @@ $copMod = (($mod ?? '') === 'cop')
   <div class="d-flex gap-2 mt-2">
     <button type="button"
             class="btn btn-sm btn-outline-success js-trash"
-            data-url="<?= $BASE ?>/admin/sayfalar/cop/geri-al">
+            data-url="<?= $BASE ?>/admin/sayfalar/geri-al">
       Seçilenleri Geri Al
     </button>
     <button type="button"
             class="btn btn-sm btn-danger js-trash"
-            data-url="<?= $BASE ?>/admin/sayfalar/cop/kalici-sil">
+            data-url="<?= $BASE ?>/admin/sayfalar/yok-et">
       Seçilenleri Kalıcı Sil
     </button>
     <a class="btn btn-sm btn-outline-dark ms-auto" href="<?= $BASE ?>/admin/sayfalar">
@@ -215,3 +223,11 @@ $copMod = (($mod ?? '') === 'cop')
 <?php endif; ?>
 
 <?php require dirname(__DIR__) . '/partials/onay_modal.php'; ?>
+
+<?php if ($copMod): ?>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous">
+</script>
+<!-- Uygulama JS -->
+<script>window.BASE_URL="<?= $base ?>";</script>
+<script src="<?= $base ?>/js/sayfalar.js?v=20250920"></script>
+<?php endif; ?>

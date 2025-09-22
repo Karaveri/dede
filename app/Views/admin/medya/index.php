@@ -13,6 +13,8 @@ $sayfaSayisi = $sayfaSayisi ?? 1;
 $csrfVal = $_SESSION['csrf'] ?? $_SESSION['csrf_token'] ?? (\App\Core\Csrf::token());
 $BASE = rtrim(BASE_URL, '/');
 ?>
+
+
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="h5 m-0">Medya Kütüphanesi</h1>
   <form method="post" action="<?= $BASE ?>/admin/medya/thumb-fix" class="ms-2">
@@ -534,8 +536,6 @@ document.addEventListener('DOMContentLoaded', function () {
       showToast('Meta kaydedilemedi: ' + (resp.json?.hata || `HTTP ${resp.status}`), 'danger');
     }
   });
-
-
 
   // Toplu silme
   document.getElementById('bulkDeleteBtn')?.addEventListener('click', () => {

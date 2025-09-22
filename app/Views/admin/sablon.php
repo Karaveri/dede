@@ -64,7 +64,6 @@
 <!-- Toast container -->
 <div class="toast-container position-fixed top-0 end-0 p-3" id="toastContainer"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="<?= BASE_URL ?>/js/yonetim.js"></script>
 
   <!-- Tema menüsü: tıklama + otomatik mod dinleyicisi -->
@@ -105,6 +104,24 @@
   });
 })();
 </script>
+
+<?php
+  // Geçerli yol (URL) — koşullu yükleme için
+  $reqPath = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '/';
+?>
+
+<?php // Kategoriler ekranlarında onay modali yüklü olsun ?>
+<?php if (preg_match('#/admin/kategoriler(?:/|$)#', $reqPath)): ?>
+  <?php require dirname(__FILE__) . '/partials/onay_modal.php'; ?>
+<?php endif; ?>
+
+<?php // Bootstrap bundle (yüklü değilse ekleyelim) ?>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+
+<?php // Kategoriler JS: çöp/liste/form davranışları ?>
+<?php if (preg_match('#/admin/kategoriler(?:/|$)#', $reqPath)): ?>
+  <script src="<?= BASE_URL ?>/js/kategoriler.js?v=20250922"></script>
+<?php endif; ?>
 
 </body>
 </html>

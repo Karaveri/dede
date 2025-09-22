@@ -35,7 +35,16 @@ $BASE = defined('BASE_URL') ? BASE_URL : '';
         <?php unset($_SESSION['hata']); endif; ?>
 
     <div class="table-responsive">
-        <table class="table table-sm table-striped align-middle">
+        <table class="table table-sm table-striped align-middle" style="table-layout: fixed; width:100%;">
+            <colgroup>
+              <col style="width: 5%;">   <!-- ID -->
+              <col style="width: 22%;">  <!-- Ad -->
+              <col style="width: 24%;">  <!-- Slug -->
+              <col style="width: 16%;">  <!-- Üst Kat -->
+              <col style="width: 9%;">   <!-- Durum -->
+              <col style="width: 18%;">  <!-- Tarih -->
+              <col style="width: 8%;">   <!-- İşlem -->
+            </colgroup>            
             <thead>
             <tr>
                 <th style="width:36px"><input type="checkbox" id="secTum"></th>
@@ -131,7 +140,7 @@ $BASE = defined('BASE_URL') ? BASE_URL : '';
             <?php endforeach; ?>
 
             <?php if (empty($rows)): ?>
-                <tr><td colspan="7" class="text-muted">Kayıt yok.</td></tr>
+                <tr><td colspan="8" class="text-muted">Kayıt yok.</td></tr>
             <?php endif; ?>
             </tbody>
         </table>
@@ -189,12 +198,13 @@ $csrfVal = htmlspecialchars($csrf ?? \App\Core\Csrf::token(), ENT_QUOTES, 'UTF-8
             data-aksiyon="kalici">
       Seçilenleri Kalıcı Sil
     </button>
-    <span class="btn btn-outline-primary btn-sm js-trash" id="secimSayaci">0 seçili</span>
+    <span class="btn btn-outline-primary btn-sm" id="secimSayaci">0 seçili</span>
     <a class="btn btn-sm btn-outline-dark ms-auto" href="<?= $BASE ?>/admin/kategoriler">
       ← Listeye Dön
     </a>
   </div>
 
 <?php endif; ?>
-
+<?php // Modal onay kısmi (Bootstrap confirm için)
+require dirname(__DIR__) . '/partials/onay_modal.php'; ?>
 </div>

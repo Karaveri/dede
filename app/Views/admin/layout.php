@@ -92,5 +92,13 @@ $hata  = $_SESSION['hata']  ?? null; unset($_SESSION['hata']);
 <!-- Bootstrap JS CDN -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous">
 </script>
+<!-- Uygulama JS -->
+<script>window.BASE_URL="<?= $base ?>";</script>
+<?php if (preg_match('#/admin/sayfalar(?:/|$)#', $reqPath)): ?>
+  <script src="<?= $base ?>/js/sayfalar.js?v=20250920"></script>
+<?php endif; ?>
+<?php if (preg_match('#/admin/kategoriler(?:/|$)#', $reqPath)): ?>
+  <script src="<?= $base ?>/js/kategoriler.js?v=20250920"></script>
+<?php endif; ?>
 </body>
 </html>

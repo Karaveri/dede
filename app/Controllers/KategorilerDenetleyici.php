@@ -102,7 +102,7 @@ class KategorilerDenetleyici extends AdminController
 
         // Mevcut durumu oku (kategoriler.durum = 0/1)
         $pdo = \App\Core\DB::pdo();
-        $q = $pdo->prepare("SELECT durum FROM kategoriler WHERE id = :id AND silindi = 0 LIMIT 1");
+        $q = $pdo->prepare("SELECT durum FROM kategoriler WHERE id = :id LIMIT 1");
         $q->execute([':id' => $id]);
         $mevcut = $q->fetchColumn();
         if ($mevcut === false) {
@@ -491,11 +491,35 @@ class KategorilerDenetleyici extends AdminController
 
         try {
             $ids = [];
+
+            // TOPLU alan adları
             if (!empty($_POST['ids']) && is_array($_POST['ids'])) {
-                $ids = array_values(array_filter(array_map('intval', $_POST['ids'])));
-            } elseif (!empty($_POST['id'])) {
-                $ids = [(int)$_POST['id']];
+                $ids = array_merge($ids, (array)$_POST['ids']);
             }
+            if (!empty($_POST['kategori_ids']) && is_array($_POST['kategori_ids'])) {
+                $ids = array_merge($ids, (array)$_POST['kategori_ids']);
+            }
+
+            // TEKİL alan adları
+            foreach (['id','kategori_id','sil_id'] as $k) {
+                if (isset($_POST[$k]) && $_POST[$k] !== '') {
+                    $ids[] = $_POST[$k];
+                    break;
+                }
+            }
+
+            // URI: /admin/kategoriler/sil/{id}
+            if (empty($ids)) {
+                $uri = $_SERVER['REQUEST_URI'] ?? '';
+                if (preg_match('#/kategoriler/sil/(\d+)#', $uri, $m)) {
+                    $ids[] = $m[1];
+                }
+            }
+
+            // Tam normalize: hepsini int'e çevir, 0 ve boşları ayıkla, uniq yap
+            $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+
+            $ids = array_values(array_unique(array_filter($ids)));
 
             if (!$ids) {
                 if ($isAjax) return $this->jsonErr('Seçim yok.', 'NO_SELECTION', [], 422);
@@ -519,9 +543,15 @@ class KategorilerDenetleyici extends AdminController
                     $adet = $st->rowCount();
                 }
             } else {
-                $id = $ids[0];
+                $id = (int)($ids[0] ?? 0);
+                if ($id <= 0) {
+                    if ($isAjax) return $this->jsonErr('Seçim yok.', 'NO_SELECTION', [], 422);
+                    $_SESSION['hata'] = 'Silinecek kayıt seçilmedi.';
+                    $this->redirect(BASE_URL . '/admin/kategoriler');
+                }
+
                 if (method_exists($this->model, 'sil')) {
-                    $this->model->sil($id);
+                    $this->model->sil($id); // imza int — garanti int gidiyor
                     $adet = 1;
                 } else {
                     $pdo = \App\Core\DB::pdo();
@@ -626,7 +656,7 @@ class KategorilerDenetleyici extends AdminController
         if (!\App\Core\Csrf::check()) {
             return $this->jsonErr('Güvenlik doğrulaması başarısız.', 'CSRF_RED', [], 403);
         }
-        $ids = array_map('intval', $_POST['ids'] ?? []);
+        $ids = array_map('intval', $_POST['ids'] ?? ($_POST['kategori_ids'] ?? []));
         $ids = array_values(array_filter($ids));
         if (!$ids) {
             return $this->jsonErr('Seçim yok.', 'NO_SELECTION', [], 422);
@@ -646,8 +676,10 @@ class KategorilerDenetleyici extends AdminController
             return $this->jsonErr('Güvenlik doğrulaması başarısız.', 'CSRF_RED', [], 403);
         }
         $ids = [];
-        if (!empty($_POST['id']))  $ids[] = (int)$_POST['id'];
-        if (!empty($_POST['ids'])) $ids = array_merge($ids, array_map('intval', (array)$_POST['ids']));
+        if (!empty($_POST['id']))           $ids[] = (int)$_POST['id'];
+        if (!empty($_POST['kategori_id']))  $ids[] = (int)$_POST['kategori_id'];
+        if (!empty($_POST['ids']))          $ids = array_merge($ids, array_map('intval', (array)$_POST['ids']));
+        if (!empty($_POST['kategori_ids'])) $ids = array_merge($ids, array_map('intval', (array)$_POST['kategori_ids']));
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
             return $this->jsonErr('Seçim yok.', 'NO_SELECTION', [], 422);
