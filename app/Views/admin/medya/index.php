@@ -14,7 +14,6 @@ $csrfVal = $_SESSION['csrf'] ?? $_SESSION['csrf_token'] ?? (\App\Core\Csrf::toke
 $BASE = rtrim(BASE_URL, '/');
 ?>
 
-
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="h5 m-0">Medya Kütüphanesi</h1>
   <form method="post" action="<?= $BASE ?>/admin/medya/thumb-fix" class="ms-2">
@@ -326,9 +325,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // BASE ve CSRF (formdan ya da meta'dan)
   const BASE = '<?= $BASE ?>';
+  window.BASE_URL = BASE; // asset kökü olabilir
+  window.APP_URL  = BASE.replace(/\/public\/?$/,''); // uygulama kökü (/public düşer)
   const csrf = document.querySelector('#medyaForm input[name="csrf"]')?.value
-            || document.querySelector('meta[name="csrf"]')?.content
-            || '';
+              || document.querySelector('meta[name="csrf"]')?.content
+              || '';
 
   // Etiket rozetlerini çizen küçük yardımcı
   function renderBadges(list) {
@@ -345,9 +346,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Basit toast bildirimi
   function showToast(msg, variant = 'success') {
-    const wrap = document.getElementById('toastWrap');
-    if (!wrap) return alert(msg);
+    // 1) Toast kabı yoksa otomatik oluştur (alert'e asla düşme)
+    let wrap = document.getElementById('toastWrap');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.id = 'toastWrap';
+      wrap.className = 'toast-container position-fixed top-0 end-0 p-3';
+      document.body.appendChild(wrap);
+    }
 
+    // 2) Toast'ı üret ve göster
     const el = document.createElement('div');
     el.className = 'toast align-items-center text-bg-' +
       (variant === 'danger' ? 'danger' :
@@ -362,10 +370,20 @@ document.addEventListener('DOMContentLoaded', function () {
         <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
       </div>`;
     wrap.appendChild(el);
-    const t = new bootstrap.Toast(el, { delay: 2500 });
-    t.show();
+
+    // bootstrap globali yoksa bile basit gösterim
+    try {
+      const t = window.bootstrap ? new window.bootstrap.Toast(el, { delay: 2500 }) : null;
+      t ? t.show() : (el.style.display = 'block');
+    } catch { el.style.display = 'block'; }
+
     el.addEventListener('hidden.bs.toast', () => el.remove());
   }
+  // showToast'u global ve adminCore'a anında köprüle
+  window.showToast = showToast;
+  window.adminCore = window.adminCore || {};
+  window.adminCore.toastOrAlert = (msg, variant) => showToast(msg, variant || 'info');
+  window.adminCore.toast        = (msg, variant) => showToast(msg, variant || 'info');  
 
   // Güvenli JSON fetch (HTML dönerse de yakalar)
   async function fetchJSON(url, opt) {
@@ -490,8 +508,6 @@ document.addEventListener('DOMContentLoaded', function () {
     showToast(`Etiket atama • Tamam: ${ok} • Hata: ${fail}`, fail ? 'warning' : 'success');
   });
 
-
-
   async function loadMeta(mid) {
     const resp = await fetchJSON(`${BASE}/admin/api/medya/meta?mid=${encodeURIComponent(mid)}`);
     if (resp.ok && resp.json?.ok) {
@@ -569,3 +585,8 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 </script>
+<?php
+  // $BASE bazen .../public ile bitiyor; asset kökü için güvenli hesap
+  $ASSET_BASE = preg_match('#/public/?$#', $BASE) ? $BASE : rtrim($BASE, '/') . '/public';
+?>
+<script src="<?= $ASSET_BASE ?>/js/medya.js?v=20250920"></script>

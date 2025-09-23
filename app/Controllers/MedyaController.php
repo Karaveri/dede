@@ -20,38 +20,95 @@ class MedyaController extends AdminController
 
     public function index(): string
     {
+        $pdo    = DB::pdo();
         $q      = trim($_GET['q'] ?? '');
         $sayfa  = max(1, (int)($_GET['s'] ?? 1));
         $limit  = 24;
         $ofset  = ($sayfa - 1) * $limit;
 
-        // Arama filtresi
-        $where  = '';
-        $params = [];
+        // Etiket parametreleri
+        $tagsCsv = trim($_GET['tags'] ?? '');
+        $mode    = (($_GET['mode'] ?? 'any') === 'all') ? 'all' : 'any';
+        $tag     = trim($_GET['tag'] ?? ''); // geri uyumluluk
+
+        // SQL parçaları
+        $join  = '';
+        $where = [];
+        $param = [];
+        $group = '';
+
+        // Arama
         if ($q !== '') {
-            $where = 'WHERE yol LIKE :q OR mime LIKE :q';
-            $params[':q'] = '%'.$q.'%';
+            $where[]      = '(m.yol LIKE :q1 OR m.mime LIKE :q2)';
+            $param[':q1'] = "%{$q}%";
+            $param[':q2'] = "%{$q}%";
         }
 
-        // Sayı
-        $st = DB::pdo()->prepare("SELECT COUNT(*) FROM medya $where");
-        $st->execute($params);
-        $toplam = (int)$st->fetchColumn();
+        // Çoklu etiket (tags=csv) + geri uyumluluk (tag)
+        $slugs = [];
+        if ($tagsCsv !== '') {
+            foreach (array_filter(array_map('trim', explode(',', $tagsCsv))) as $s) {
+                if ($s !== '') $slugs[] = $s;
+            }
+        }
+        if ($tag !== '') $slugs[] = $tag;
+        $slugs = array_values(array_unique($slugs));
+
+        if (!empty($slugs)) {
+            if ($mode === 'all') {
+                // Hepsi: JOIN + HAVING COUNT(DISTINCT) = N
+                $join .= ' JOIN medya_etiket mef ON mef.medya_id = m.id
+                           JOIN etiketler    ef  ON ef.id = mef.etiket_id ';
+                $inPh = [];
+                foreach ($slugs as $i => $slug) {
+                    $ph = ":t{$i}";
+                    $inPh[] = $ph;
+                    $param[$ph] = $slug;
+                }
+                $where[] = 'ef.slug IN ('.implode(',', $inPh).')';
+                $group   = ' GROUP BY m.id HAVING COUNT(DISTINCT ef.slug) = '.count($slugs);
+            } else {
+                // En az biri: EXISTS
+                $inPh = [];
+                foreach ($slugs as $i => $slug) {
+                    $ph = ":t{$i}";
+                    $inPh[] = $ph;
+                    $param[$ph] = $slug;
+                }
+                $where[] =
+                    'EXISTS (SELECT 1 FROM medya_etiket me
+                             JOIN etiketler e ON e.id = me.etiket_id
+                             WHERE me.medya_id = m.id AND e.slug IN ('.implode(',', $inPh).'))';
+            }
+        }
+
+        // WHERE oluştur
+        $whereSql = '';
+        if (!empty($where)) $whereSql = ' WHERE '.implode(' AND ', $where);
+
+        // ---- Toplam kayıt (alt sorgu ile güvenli sayım)
+        $sqlCount = 'SELECT COUNT(*) FROM (
+                       SELECT m.id
+                       FROM medya m'.$join.$whereSql.$group.'
+                     ) as sub';
+        $stc = $pdo->prepare($sqlCount);
+        foreach ($param as $k => $v) $stc->bindValue($k, $v, PDO::PARAM_STR);
+        $stc->execute();
+        $toplam = (int)$stc->fetchColumn();
         $sayfaSayisi = max(1, (int)ceil($toplam / $limit));
 
-        // Liste
-        $sql = "SELECT id, yol, yol_thumb, mime, genislik, yukseklik
-                FROM medya $where
-                ORDER BY id DESC
-                LIMIT :l OFFSET :o";
-        $st  = DB::pdo()->prepare($sql);
-        foreach ($params as $k => $v) $st->bindValue($k, $v, PDO::PARAM_STR);
+        // ---- Liste
+        $sqlList = 'SELECT m.id, m.yol, m.yol_thumb, m.mime, m.genislik, m.yukseklik
+                    FROM medya m'.$join.$whereSql.$group.'
+                    ORDER BY m.id DESC
+                    LIMIT :l OFFSET :o';
+        $st  = $pdo->prepare($sqlList);
+        foreach ($param as $k => $v) $st->bindValue($k, $v, PDO::PARAM_STR);
         $st->bindValue(':l', $limit, PDO::PARAM_INT);
         $st->bindValue(':o', $ofset, PDO::PARAM_INT);
         $st->execute();
         $medyalar = $st->fetchAll(PDO::FETCH_ASSOC);
 
-        // >>> Layout otomatik (admin/sablon.php)
         return $this->view('admin/medya/index', [
             'baslik'      => 'Medya Kütüphanesi',
             'medyalar'    => $medyalar,
@@ -307,15 +364,39 @@ class MedyaController extends AdminController
             $hash  = @sha1_file($targetPath) ?: null;
             [$W,$H] = @\getimagesize($targetPath) ?: [null,null];
 
+            // --- ÇAKIŞMA KONTROLÜ: aynı yol veya aynı hash varsa uyar ve diski geri al ---
+            $pdo = \App\Core\DB::pdo();
+            $chk = $pdo->prepare("SELECT id FROM medya WHERE yol = :y OR (hash IS NOT NULL AND hash = :h) LIMIT 1");
+            $chk->execute([':y' => $yol, ':h' => $hash]);
+            $dupeId = (int)$chk->fetchColumn();
+            if ($dupeId > 0) {
+                // Diske yazılmış dosyaları geri sil (sessiz)
+                if (is_file($targetPath)) @unlink($targetPath);
+                if (!empty($thumbPath) && is_file($thumbPath)) @unlink($thumbPath);
+
+                http_response_code(409);
+                echo json_encode([
+                    'ok'    => false,
+                    'kod'   => 'ZATEN_VAR',
+                    'mesaj' => 'Aynı dosya adı veya aynı içerik zaten kayıtlı.',
+                    'id'    => $dupeId
+                ], JSON_UNESCAPED_UNICODE);
+                return;
+            }
+            // --- /ÇAKIŞMA KONTROLÜ ---
+
             // DB kaydı
             $sql = "INSERT INTO medya (yol, yol_thumb, mime, boyut, hash, genislik, yukseklik, created_at)
                     VALUES (:yol, :yol_thumb, :mime, :boyut, :hash, :w, :h, NOW())
                     ON DUPLICATE KEY UPDATE
+                      yol       = VALUES(yol),         -- <<< yeni dosya adıyla yol güncellensin
                       yol_thumb = VALUES(yol_thumb),
                       mime      = VALUES(mime),
                       boyut     = VALUES(boyut),
                       genislik  = VALUES(genislik),
-                      yukseklik = VALUES(yukseklik)";
+                      yukseklik = VALUES(yukseklik),
+                      created_at = NOW()               -- <<< en üste çıksın
+            ";
             $st = \App\Core\DB::pdo()->prepare($sql);
             $st->execute([
                 ':yol'       => $yol,
@@ -327,8 +408,24 @@ class MedyaController extends AdminController
                 ':h'         => $H,
             ]);
 
-            // TinyMCE "location" bekliyor
-            echo json_encode(['ok'=>true, 'location'=> $yol, 'thumb' => $yolThumb, 'gd'=>$canGD], JSON_UNESCAPED_UNICODE);
+            // INSERT sonrası id (duplicate'te lastInsertId() 0 olabilir)
+            $mid = (int)\App\Core\DB::pdo()->lastInsertId();
+            if ($mid <= 0) {
+                // Mevcut kaydı çek: hash veya yol ile
+                $sel = \App\Core\DB::pdo()->prepare("SELECT id FROM medya WHERE hash = :hash OR yol = :yol ORDER BY id DESC LIMIT 1");
+                $sel->execute([':hash' => $hash, ':yol' => $yol]);
+                $mid = (int)$sel->fetchColumn();
+            }
+
+            // Tek ve sağlam JSON cevap (id dahil)
+            echo json_encode([
+                'ok'       => true,
+                'id'       => $mid,
+                'location' => $yol,
+                'thumb'    => $yolThumb,
+                'gd'       => $canGD
+            ], JSON_UNESCAPED_UNICODE);
+
         } catch (\Throwable $e) {
             http_response_code(400);
             echo json_encode(['ok'=>false,'kod'=>'UPLOAD_ERR','mesaj'=>$e->getMessage()], JSON_UNESCAPED_UNICODE);
@@ -562,12 +659,31 @@ class MedyaController extends AdminController
         $mid = (int)($g['medya_id'] ?? 0);
         $girilen = $g['etiketler'] ?? [];
 
+        $mod = strtolower(trim((string)($g['mod'] ?? 'replace'))); // 'append' | 'replace'
+        $append = ($mod === 'append');        
+
         if (!$mid || (!is_array($girilen) && !is_string($girilen))) {
             return $this->jsonErr('GEÇERSİZ_VERİ');
         }
         if (is_string($girilen)) {
             $girilen = array_filter(array_map('trim', explode(',', $girilen)));
         }
+
+        // Sadece ekleme modunda ve girilen boşsa, mevcutları koru
+        if ($append && empty($girilen)) {
+            $etiketSt = $pdo->prepare("
+                SELECT e.slug, e.ad
+                FROM medya_etiket me
+                JOIN etiketler e ON e.id = me.etiket_id
+                WHERE me.medya_id = :mid
+                ORDER BY e.ad ASC
+            ");
+            $etiketSt->execute([':mid' => $mid]);
+            return $this->jsonOk([
+                'medya_id'  => $mid,
+                'etiketler' => $etiketSt->fetchAll(\PDO::FETCH_ASSOC),
+            ]);
+        }        
 
         $etiketler = [];
         foreach ($girilen as $ad) {
@@ -602,14 +718,22 @@ class MedyaController extends AdminController
             $mevcut->execute([':mid' => $mid]);
             $mevcutIds = array_map('intval', array_column($mevcut->fetchAll(\PDO::FETCH_ASSOC), 'etiket_id'));
 
-            $silinecek = array_diff($mevcutIds, $yeniIds);
-            if ($silinecek) {
+            if ($append) {
+                // Ekle modunda SİLME YOK → sadece yeni ilişkileri ekle
+                $silinecek = [];
+                $eklenecek = array_diff($yeniIds, $mevcutIds);
+            } else {
+                // Eşitle (replace) modunda tam eşitle
+                $silinecek = array_diff($mevcutIds, $yeniIds);
+                $eklenecek = array_diff($yeniIds, $mevcutIds);
+            }
+
+            if (!empty($silinecek)) {
                 $in = implode(',', array_fill(0, count($silinecek), '?'));
                 $del = $pdo->prepare("DELETE FROM medya_etiket WHERE medya_id = ? AND etiket_id IN ($in)");
                 $del->execute(array_merge([$mid], array_values($silinecek)));
             }
 
-            $eklenecek = array_diff($yeniIds, $mevcutIds);
             if ($eklenecek) {
                 $insMe = $pdo->prepare("INSERT IGNORE INTO medya_etiket (medya_id, etiket_id) VALUES (:mid, :eid)");
                 foreach ($eklenecek as $eid) {

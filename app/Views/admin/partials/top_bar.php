@@ -14,7 +14,7 @@ $qVal = htmlspecialchars($_GET['q'] ?? ($q ?? ''), ENT_QUOTES, 'UTF-8');
     Çöp
     <i class="badge text-bg-danger ms-1" id="copBadge">0</i>
   </a>
-  <a href="<?= $newUrl   ?>"  class="btn btn-primary yenikat"><?= htmlspecialchars($newLabel, ENT_QUOTES, 'UTF-8') ?></a>
+  <a href="<?= $newUrl  ?>"  class="btn btn-primary yenikat"><?= htmlspecialchars($newLabel, ENT_QUOTES, 'UTF-8') ?></a>
 </form>
 
 <!-- Onay Modali (yonetim.js ile uyumlu) -->

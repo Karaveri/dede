@@ -94,11 +94,10 @@ $hata  = $_SESSION['hata']  ?? null; unset($_SESSION['hata']);
 </script>
 <!-- Uygulama JS -->
 <script>window.BASE_URL="<?= $base ?>";</script>
-<?php if (preg_match('#/admin/sayfalar(?:/|$)#', $reqPath)): ?>
-  <script src="<?= $base ?>/js/sayfalar.js?v=20250920"></script>
-<?php endif; ?>
-<?php if (preg_match('#/admin/kategoriler(?:/|$)#', $reqPath)): ?>
-  <script src="<?= $base ?>/js/kategoriler.js?v=20250920"></script>
-<?php endif; ?>
+<script src="<?= $BASE ?>/public/js/sayfalar.js?v=20250920"></script>
+<script src="<?= $BASE ?>/public/js/kategoriler.js?v=20250920"></script>
+<script src="<?= $BASE ?>/public/js/core.js?v=20250920"></script>
+<script src="<?= $BASE ?>/public/js/medya.js?v=20250920"></script>
+<script src="<?= $BASE ?>/public/js/yonetim.js?v=20250920"></script>
 </body>
 </html>
